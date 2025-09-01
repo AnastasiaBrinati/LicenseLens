@@ -123,7 +123,7 @@ def build_choropleth_map(df, cell_ps, cmap, center_lat, center_lon):
 def render():
     st.header("Zone con priorità di attenzione")
     st.info(
-        "Cos'è il Priority Score?\n"
+        "⚠️ Cos'è il Priority Score?\n"
         "Il Priority Score aiuta a identificare le aree potenzialmente anomale rispetto agli eventi dichiarati dai locali."
     )
 
@@ -142,22 +142,43 @@ def render():
         return
 
     available_cities = sorted(df["CITY"].unique())
-    selected_cities = st.multiselect("Seleziona città:", available_cities, default=available_cities[0], key="filter_city_c_auto")
-
     available_genres = sorted(GENERI_PRIORITARI) + ["Altro"]
-    selected_genres = st.multiselect("Seleziona genere:", available_genres, default=available_genres, key="filter_genre_c_auto")
 
-    if not selected_cities or not selected_genres:
+    # Due colonne affiancate
+    col1, col2 = st.columns(2)
+
+    with col1:
+        selected_city = st.selectbox(
+            "Seleziona città:",
+            available_cities,
+            index=0,
+            key="filter_city_c_auto"
+        )
+
+    with col2:
+        selected_genres = st.multiselect(
+            "Seleziona genere:",
+            available_genres,
+            default=available_genres,
+            key="filter_genre_c_auto"
+        )
+
+    if not selected_city or not selected_genres:
         st.warning("Seleziona almeno una città e un genere.")
         return
 
-    filters_key = (tuple(sorted(selected_cities)), tuple(sorted(selected_genres)))
-    needs_update = (st.session_state.last_filters_choropleth != filters_key) or (st.session_state.folium_choropleth_map is None)
+    filters_key = (selected_city, tuple(sorted(selected_genres)))
+    needs_update = (
+        st.session_state.last_filters_choropleth != filters_key
+        or st.session_state.folium_choropleth_map is None
+    )
 
     if needs_update:
         # Filtra dati
-        df_filtered = df[df["CITY"].isin(selected_cities)].copy()
-        df_filtered["GENERE_DISPLAY"] = df_filtered["GENERE"].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
+        df_filtered = df[df["CITY"] == selected_city].copy()
+        df_filtered["GENERE_DISPLAY"] = df_filtered["GENERE"].apply(
+            lambda g: g if g in GENERI_PRIORITARI else "Altro"
+        )
         df_filtered = df_filtered[df_filtered["GENERE_DISPLAY"].isin(selected_genres)]
 
         if df_filtered.empty:
@@ -175,7 +196,9 @@ def render():
 
         # Aggiorna session state
         st.session_state.df_choropleth = df_filtered
-        st.session_state.folium_choropleth_map = build_choropleth_map(df_filtered, cell_ps, cmap, mean_lat, mean_lon)
+        st.session_state.folium_choropleth_map = build_choropleth_map(
+            df_filtered, cell_ps, cmap, mean_lat, mean_lon
+        )
         st.session_state.last_filters_choropleth = filters_key
 
     # ===================== Mostra mappa =====================

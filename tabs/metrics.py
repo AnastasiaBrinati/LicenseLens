@@ -38,8 +38,6 @@ def load_locali_data():
     return combined_df
 
 
-
-
 def get_month_columns(df):
     """Identifica le colonne dei mesi nel formato MM/YYYY"""
     month_cols = []
@@ -103,7 +101,7 @@ def create_events_timeline_chart(df_row, month_columns):
     ax.set_ylabel('Numero di Eventi', fontsize=12)
 
     # Aggiungi il nome del locale al titolo se disponibile
-    locale_name = row_data.get('nome', row_data.get('name', 'Locale Selezionato'))
+    locale_name = row_data.get('DES_LOCALE', row_data.get('DES_LOCALE', 'Locale Selezionato'))
     ax.set_title(f'Andamento Eventi Mensili - {locale_name}', fontsize=14, fontweight='bold')
 
     # Aggiungi griglia
@@ -141,7 +139,7 @@ def render():
         st.error("Impossibile caricare i dati. Verifica la presenza dei file CSV.")
         return
 
-    #st.success(f"Caricati {len(df)} locali")
+    # st.success(f"Caricati {len(df)} locali")
 
     # ------------------ Filtro Città ------------------
     if 'citta' in df.columns:
@@ -149,7 +147,7 @@ def render():
         selected_cities = st.multiselect(
             "Seleziona città",
             options=cities,
-            default=cities,  # tutte selezionate di default
+            default=cities[0],  # tutte selezionate di default
             key="metrics_cities_tab"
         )
 
@@ -169,7 +167,8 @@ def render():
     with col1:
         # ------------------ Filtro Generi principali prefissati ------------------
         # Lista dei generi principali definiti a priori
-        MAIN_GENRES = ["Bar", "Albergo/Hotel", "All'aperto", "Circolo", "Discoteca", "Ristorante"]  # esempio, personalizza
+        MAIN_GENRES = ["Bar", "Albergo/Hotel", "All'aperto", "Circolo", "Discoteca",
+                       "Ristorante"]  # esempio, personalizza
 
         if 'GENERE' in df.columns:
             # Crea una colonna temporanea per i generi, raggruppando tutti gli altri in "Altro"
@@ -209,7 +208,7 @@ def render():
         # ------------------ Tabella interattiva ------------------
         selected_row = st.dataframe(
             df_top[display_columns],
-            width=True,
+            use_container_width=True,
             hide_index=True,
             on_select="rerun",
             selection_mode="single-row",
@@ -270,7 +269,6 @@ def render():
 
             centre_circle = plt.Circle((0, 0), 0.70, fc='white')
             fig_donut.gca().add_artist(centre_circle)
-            ax_donut.set_title('Generi Top Locali', fontsize=12, fontweight='bold')
             plt.tight_layout()
             st.pyplot(fig_donut)
             plt.close()

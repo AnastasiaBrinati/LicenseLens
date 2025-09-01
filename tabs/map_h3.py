@@ -120,6 +120,10 @@ def build_map(df_filtered, center_lat, center_lon):
 # ===================== Render =====================
 def render():
     st.header("Zone per livello di attività")
+    st.info(
+        "⚠️ **Cos'è il livello di attività?**\n"
+            "Classificazione automatica delle zone basata sulla media di eventi registrati negli ultimi 12 mesi."
+    )
 
     # ===================== Session state =====================
     if 'last_filters' not in st.session_state: st.session_state.last_filters = None
@@ -128,20 +132,37 @@ def render():
 
     # ===================== Filtri automatici =====================
     available_cities = list_available_cities()
-    selected_cities = st.multiselect("Seleziona città:", available_cities, default=available_cities[0], key="filter_city_auto")
     available_genres = sorted(GENERI_PRIORITARI) + ["Altro"]
-    selected_genres = st.multiselect("Seleziona genere:", available_genres, default=available_genres, key="filter_genre_auto")
 
-    if not selected_cities:
+    # Crea due colonne affiancate
+    col1, col2 = st.columns(2)
+
+    with col1:
+        selected_city = st.selectbox(
+            "Seleziona città:",
+            available_cities,
+            index=0,
+            key="filter_city_auto"
+        )
+
+    with col2:
+        selected_genres = st.multiselect(
+            "Seleziona genere:",
+            available_genres,
+            default=available_genres,
+            key="filter_genre_auto"
+        )
+
+    if not selected_city:
         st.warning("Seleziona almeno una città per visualizzare la mappa.")
         return
 
-    filters_key = (tuple(sorted(selected_cities)), tuple(sorted(selected_genres)))
+    filters_key = (selected_city, tuple(sorted(selected_genres)))
     needs_update = (st.session_state.last_filters != filters_key) or (st.session_state.folium_map is None)
 
     if needs_update:
-        dfs = [load_csv(city) for city in selected_cities]
-        df = pd.concat(dfs, ignore_index=True).dropna(subset=["LATITUDINE", "LONGITUDINE"]).query("LATITUDINE!=0 & LONGITUDINE!=0").copy()
+        df = load_csv(selected_city).dropna(subset=["LATITUDINE", "LONGITUDINE"]).query(
+            "LATITUDINE!=0 & LONGITUDINE!=0").copy()
         df_filtered = df.copy()
         df_filtered["GENERE_NORM"] = df_filtered["GENERE"].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
         if selected_genres:
@@ -154,19 +175,19 @@ def render():
         st.session_state.folium_map = build_map(df_filtered, mean_lat, mean_lon)
         st.session_state.last_filters = filters_key
 
-    # ===================== Mostra mappa =====================
-    st_folium(
-        st.session_state.folium_map,
-        width=1300,
-        height=800,
-        key="h3_map",
-        returned_objects=[]
-    )
-
     # ===================== Statistiche laterali =====================
     df_filtered = st.session_state.df_filtered
     if df_filtered is not None and not df_filtered.empty:
         col_map, col_stats = st.columns([2,1])
+        with col_map:
+            # ===================== Mostra mappa =====================
+            st_folium(
+                st.session_state.folium_map,
+                width=1200,
+                height=800,
+                key="h3_map",
+                returned_objects=[]
+            )
         with col_stats:
             st.subheader("📊 Statistiche - ultimi 12 mesi")
             total_locali = len(df_filtered)
@@ -179,8 +200,3 @@ def render():
                 pct = (count / total_locali * 100) if total_locali>0 else 0
                 labels = {1: "🔴 Alta attività", 2: "🟡 Media attività", 3: "🔵 Bassa attività"}
                 st.metric(labels.get(int(fascia), f"Fascia {fascia}"), f"{count} ({pct:.1f}%)")
-
-        st.info(
-            "⚠️ **Cos'è il livello di attività?**\n"
-            "Classificazione automatica delle zone basata sulla media di eventi registrati negli ultimi 12 mesi."
-        )
