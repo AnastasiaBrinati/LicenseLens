@@ -12,7 +12,6 @@ load_dotenv()
 DATA_DIR = os.getenv("DATA_DIR", "./data")
 BASE_MAP_GEOJSON = os.path.join(DATA_DIR, "geo", "seprag.geojson")
 MONTHS_WIN = int(os.getenv("MONTHS_WIN", "12"))
-
 ROMA_LAT, ROMA_LON = 41.9027835, 12.4963655
 GENERI_PRIORITARI = {"Bar", "Discoteca", "Ristorante", "All'aperto", "Circolo", "Albergo/Hotel"}
 
@@ -37,9 +36,7 @@ def load_csv_files():
             df_tmp[col] = pd.to_numeric(df_tmp[col], errors="coerce")
         df_tmp["CITY"] = city_name
         dfs.append(df_tmp)
-    if dfs:
-        return pd.concat(dfs, ignore_index=True)
-    return pd.DataFrame()
+    return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
 @st.cache_data
 def load_base_map():
@@ -57,24 +54,15 @@ def build_choropleth_map(df, cell_ps, cmap, center_lat, center_lon):
         folium.GeoJson(
             geojson_base,
             name="Confini Base",
-            style_function=lambda x: {
-                'fillColor': 'none',
-                'color': '#333333',
-                'weight': 2,
-                'fillOpacity': 0
-            }
+            style_function=lambda x: {'fillColor': 'none','color': '#333333','weight': 2,'fillOpacity': 0}
         ).add_to(m)
 
     # Legenda cmap
-    legend_html = cmap._repr_html_().replace(
-        'position: absolute;',
-        'position: absolute; bottom: 10px; left: 10px;'
-    )
+    legend_html = cmap._repr_html_().replace('position: absolute;', 'position: absolute; bottom: 10px; left: 10px;')
     Element(legend_html).add_to(m)
 
     # Poligoni H3
     for _, row in cell_ps.iterrows():
-        boundary = row['boundary']
         tooltip_html = f"""
         <b>Cella H3</b><br>
         Priority Score: {row['ps_mean']:.3f}<br>
@@ -82,7 +70,7 @@ def build_choropleth_map(df, cell_ps, cmap, center_lat, center_lon):
         Eventi Totali: {row['events_sum']}
         """
         folium.Polygon(
-            locations=boundary,
+            locations=row['boundary'],
             color="#333333",
             weight=1,
             fill=True,
@@ -96,7 +84,6 @@ def build_choropleth_map(df, cell_ps, cmap, center_lat, center_lon):
         lat, lon = float(r["LATITUDINE"]), float(r["LONGITUDINE"])
         ps_locale = r.get("priority_score", np.nan)
         color = cmap(ps_locale) if not np.isnan(ps_locale) else "#cccccc"
-
         popup_html = folium.Popup(
             f"<b>{r.get('DES_LOCALE','Senza nome')}</b><br>"
             f"Città: {r['CITY']}<br>"
@@ -105,7 +92,6 @@ def build_choropleth_map(df, cell_ps, cmap, center_lat, center_lon):
             f"Eventi totali: {fmt(r.get('events_total'),0)}<br>",
             max_width=320
         )
-
         folium.CircleMarker(
             [lat, lon],
             radius=4,
@@ -127,15 +113,11 @@ def render():
         "Il Priority Score aiuta a identificare le aree potenzialmente anomale rispetto agli eventi dichiarati dai locali."
     )
 
-    # ===================== Session state =====================
-    if 'last_filters_choropleth' not in st.session_state:
-        st.session_state.last_filters_choropleth = None
-    if 'df_choropleth' not in st.session_state:
-        st.session_state.df_choropleth = None
-    if 'folium_choropleth_map' not in st.session_state:
-        st.session_state.folium_choropleth_map = None
+    # --- Session state ---
+    if 'last_filters_choropleth' not in st.session_state: st.session_state.last_filters_choropleth = None
+    if 'df_choropleth' not in st.session_state: st.session_state.df_choropleth = None
+    if 'folium_choropleth_map' not in st.session_state: st.session_state.folium_choropleth_map = None
 
-    # ===================== Filtri automatici =====================
     df = load_csv_files()
     if df.empty:
         st.error("⚠️ Nessun file valido trovato in data/locali_*.csv")
@@ -144,48 +126,24 @@ def render():
     available_cities = sorted(df["CITY"].unique())
     available_genres = sorted(GENERI_PRIORITARI) + ["Altro"]
 
-    # Due colonne affiancate
+    # --- Filtri affiancati ---
     col1, col2 = st.columns(2)
-
     with col1:
-        selected_city = st.selectbox(
-            "Seleziona città:",
-            available_cities,
-            index=0,
-            key="filter_city_c_auto"
-        )
-
+        selected_city = st.selectbox("Seleziona città:", available_cities, index=0, key="filter_city_c_auto")
     with col2:
-        selected_genres = st.multiselect(
-            "Seleziona genere:",
-            available_genres,
-            default=available_genres,
-            key="filter_genre_c_auto"
-        )
-
-    if not selected_city or not selected_genres:
-        st.warning("Seleziona almeno una città e un genere.")
-        return
+        selected_genres = st.multiselect("Seleziona genere:", available_genres, default=available_genres, key="filter_genre_c_auto")
 
     filters_key = (selected_city, tuple(sorted(selected_genres)))
-    needs_update = (
-        st.session_state.last_filters_choropleth != filters_key
-        or st.session_state.folium_choropleth_map is None
-    )
+    needs_update = (st.session_state.last_filters_choropleth != filters_key or st.session_state.folium_choropleth_map is None)
 
     if needs_update:
-        # Filtra dati
         df_filtered = df[df["CITY"] == selected_city].copy()
-        df_filtered["GENERE_DISPLAY"] = df_filtered["GENERE"].apply(
-            lambda g: g if g in GENERI_PRIORITARI else "Altro"
-        )
+        df_filtered["GENERE_DISPLAY"] = df_filtered["GENERE"].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
         df_filtered = df_filtered[df_filtered["GENERE_DISPLAY"].isin(selected_genres)]
-
         if df_filtered.empty:
             st.warning("Nessun punto soddisfa i filtri selezionati.")
             return
 
-        # Genera choropleth
         cell_ps, cmap = generate_choropleth(df_filtered)
         if cell_ps.empty:
             st.warning("Nessuna cella H3 disponibile per la mappa.")
@@ -194,18 +152,16 @@ def render():
         mean_lat = df_filtered["LATITUDINE"].mean()
         mean_lon = df_filtered["LONGITUDINE"].mean()
 
-        # Aggiorna session state
+        # Salva mappa in session state
         st.session_state.df_choropleth = df_filtered
-        st.session_state.folium_choropleth_map = build_choropleth_map(
-            df_filtered, cell_ps, cmap, mean_lat, mean_lon
-        )
+        st.session_state.folium_choropleth_map = build_choropleth_map(df_filtered, cell_ps, cmap, mean_lat, mean_lon)
         st.session_state.last_filters_choropleth = filters_key
 
-    # ===================== Mostra mappa =====================
+    # --- Mostra mappa ---
     st_folium(
         st.session_state.folium_choropleth_map,
         width=1200,
         height=800,
         key="choropleth_map",
-        returned_objects=[]  # evita rerun sulla mappa
+        returned_objects=[]
     )

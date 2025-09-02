@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import folium, os, json
 from streamlit_folium import st_folium
-from folium.plugins import MarkerCluster
 from dotenv import load_dotenv
 
 # ===================== Config =====================
@@ -13,9 +12,7 @@ BASE_MAP_GEOJSON = os.path.join(DATA_DIR, "geo", "seprag.geojson")
 MONTHS_WIN = int(os.getenv("MONTHS_WIN", "12"))
 ROMA_LAT, ROMA_LON = 41.9027835, 12.4963655
 
-GENERI_PRIORITARI = {
-    "Bar", "Discoteca", "Ristorante", "All'aperto", "Circolo", "Albergo/Hotel"
-}
+GENERI_PRIORITARI = {"Bar", "Discoteca", "Ristorante", "All'aperto", "Circolo", "Albergo/Hotel"}
 
 # ===================== Utility =====================
 def fmt(x, dec=3, nd="n.d."):
@@ -93,7 +90,6 @@ def build_map(df_filtered, center_lat, center_lon):
     ).add_to(m)
 
     if not df_filtered.empty:
-        #cluster = MarkerCluster(name="Locali").add_to(m)
         for _, r in df_filtered.iterrows():
             lat, lon = float(r["LATITUDINE"]), float(r["LONGITUDINE"])
             fascia = int(r.get("fascia_cell", 3))
@@ -108,7 +104,7 @@ def build_map(df_filtered, center_lat, center_lon):
             folium.CircleMarker(
                 [lat, lon],
                 radius=5,
-                color=os.getenv('FASCIA_COLOR_' + str(fascia), "#d73027"), #.get("color", "#555555"),
+                color=os.getenv('FASCIA_COLOR_' + str(fascia), "#d73027"),
                 weight=2,
                 fill=True,
                 fill_color=os.getenv('FASCIA_COLOR_' + str(fascia), "#d73027"),
@@ -122,47 +118,30 @@ def render():
     st.header("Zone per livello di attività")
     st.info(
         "⚠️ **Cos'è il livello di attività?**\n"
-            "Classificazione automatica delle zone basata sulla media di eventi registrati negli ultimi 12 mesi."
+        "Classificazione automatica delle zone basata sulla media di eventi registrati negli ultimi 12 mesi."
     )
 
-    # ===================== Session state =====================
-    if 'last_filters' not in st.session_state: st.session_state.last_filters = None
-    if 'df_filtered' not in st.session_state: st.session_state.df_filtered = None
-    if 'folium_map' not in st.session_state: st.session_state.folium_map = None
+    # --- Session state ---
+    if "last_filters" not in st.session_state: st.session_state.last_filters = None
+    if "df_filtered_h3" not in st.session_state: st.session_state.df_filtered_h3 = None
+    if "map_center" not in st.session_state: st.session_state.map_center = (ROMA_LAT, ROMA_LON)
 
-    # ===================== Filtri automatici =====================
-    available_cities = list_available_cities()
-    available_genres = sorted(GENERI_PRIORITARI) + ["Altro"]
-
-    # Crea due colonne affiancate
+    # --- Filtri affiancati ---
     col1, col2 = st.columns(2)
-
+    available_cities = list_available_cities()
     with col1:
-        selected_city = st.selectbox(
-            "Seleziona città:",
-            available_cities,
-            index=0,
-            key="filter_city_auto"
-        )
-
+        selected_city = st.selectbox("Seleziona città:", available_cities, index=0, key="filter_city_auto")
+    available_genres = sorted(GENERI_PRIORITARI) + ["Altro"]
     with col2:
-        selected_genres = st.multiselect(
-            "Seleziona genere:",
-            available_genres,
-            default=available_genres,
-            key="filter_genre_auto"
-        )
-
-    if not selected_city:
-        st.warning("Seleziona almeno una città per visualizzare la mappa.")
-        return
+        selected_genres = st.multiselect("Seleziona genere:", available_genres, default=available_genres, key="filter_genre_auto")
 
     filters_key = (selected_city, tuple(sorted(selected_genres)))
-    needs_update = (st.session_state.last_filters != filters_key) or (st.session_state.folium_map is None)
+    needs_update = st.session_state.last_filters != filters_key
 
     if needs_update:
         df = load_csv(selected_city).dropna(subset=["LATITUDINE", "LONGITUDINE"]).query(
-            "LATITUDINE!=0 & LONGITUDINE!=0").copy()
+            "LATITUDINE!=0 & LONGITUDINE!=0"
+        ).copy()
         df_filtered = df.copy()
         df_filtered["GENERE_NORM"] = df_filtered["GENERE"].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
         if selected_genres:
@@ -171,32 +150,28 @@ def render():
         mean_lat = df_filtered["LATITUDINE"].mean() if not df_filtered.empty else ROMA_LAT
         mean_lon = df_filtered["LONGITUDINE"].mean() if not df_filtered.empty else ROMA_LON
 
-        st.session_state.df_filtered = df_filtered
-        st.session_state.folium_map = build_map(df_filtered, mean_lat, mean_lon)
+        st.session_state.df_filtered_h3 = df_filtered
+        st.session_state.map_center = (mean_lat, mean_lon)
         st.session_state.last_filters = filters_key
 
-    # ===================== Statistiche laterali =====================
-    df_filtered = st.session_state.df_filtered
-    if df_filtered is not None and not df_filtered.empty:
+    # --- Mappa e metriche affiancate ---
+    df_filtered = st.session_state.df_filtered_h3
+    center_lat, center_lon = st.session_state.map_center
+    if df_filtered is not None:
         col_map, col_stats = st.columns([2,1])
         with col_map:
-            # ===================== Mostra mappa =====================
-            st_folium(
-                st.session_state.folium_map,
-                width=1200,
-                height=800,
-                key="h3_map",
-                returned_objects=[]
-            )
+            folium_map = build_map(df_filtered, center_lat, center_lon)
+            st_folium(folium_map, width=1200, height=800, returned_objects=[])
         with col_stats:
-            st.subheader("📊 Statistiche - ultimi 12 mesi")
-            total_locali = len(df_filtered)
-            total_eventi = df_filtered["events_total"].sum() if "events_total" in df_filtered.columns else 0
-            st.metric("Totale Locali", total_locali)
-            st.metric("Totale Eventi", total_eventi)
-            for fascia in sorted(df_filtered["fascia_cell"].unique()):
-                fascia_data = df_filtered[df_filtered["fascia_cell"] == fascia]
-                count = len(fascia_data)
-                pct = (count / total_locali * 100) if total_locali>0 else 0
-                labels = {1: "🔴 Alta attività", 2: "🟡 Media attività", 3: "🔵 Bassa attività"}
-                st.metric(labels.get(int(fascia), f"Fascia {fascia}"), f"{count} ({pct:.1f}%)")
+            if not df_filtered.empty:
+                st.subheader("📊 Statistiche - ultimi 12 mesi")
+                total_locali = len(df_filtered)
+                total_eventi = df_filtered["events_total"].sum() if "events_total" in df_filtered.columns else 0
+                st.metric("Totale Locali", total_locali)
+                st.metric("Totale Eventi", total_eventi)
+                for fascia in sorted(df_filtered["fascia_cell"].unique()):
+                    fascia_data = df_filtered[df_filtered["fascia_cell"] == fascia]
+                    count = len(fascia_data)
+                    pct = (count / total_locali * 100) if total_locali > 0 else 0
+                    labels = {1: "🔴 Alta attività", 2: "🟡 Media attività", 3: "🔵 Bassa attività"}
+                    st.metric(labels.get(int(fascia), f"Fascia {fascia}"), f"{count} ({pct:.1f}%)")
