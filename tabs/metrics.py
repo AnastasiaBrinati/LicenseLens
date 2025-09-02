@@ -57,7 +57,8 @@ def get_month_columns(df):
     return month_cols
 
 
-def create_events_timeline_chart(df_row, month_columns):
+def create_events_timeline_chart(df_row):
+    month_columns = get_month_columns(df_row)
     """Crea il line plot dell'andamento eventi mensili"""
     if df_row.empty or not month_columns:
         st.info("Nessun dato disponibile per il grafico timeline")
@@ -139,8 +140,6 @@ def render():
         st.error("Impossibile caricare i dati. Verifica la presenza dei file CSV.")
         return
 
-    # st.success(f"Caricati {len(df)} locali")
-
     # ------------------ Filtro Città ------------------
     if 'citta' in df.columns:
         cities = sorted(df['citta'].dropna().unique().tolist())
@@ -166,17 +165,14 @@ def render():
 
     with col1:
         # ------------------ Filtro Generi principali prefissati ------------------
-        # Lista dei generi principali definiti a priori
         MAIN_GENRES = ["Bar", "Albergo/Hotel", "All'aperto", "Circolo", "Discoteca",
-                       "Ristorante"]  # esempio, personalizza
+                       "Ristorante"]
 
         if 'GENERE' in df.columns:
-            # Crea una colonna temporanea per i generi, raggruppando tutti gli altri in "Altro"
             df['GENERE_CAT'] = df['GENERE'].apply(lambda x: x if x in MAIN_GENRES else 'Altro')
 
-            # Multiselect per i generi principali + Altro
             selected_genres = st.multiselect(
-                "Seleziona genere:",
+                "Generi:",
                 options=df['GENERE_CAT'].unique(),
                 default=df['GENERE_CAT'].unique(),
                 key="metrics_genres_tab"
@@ -200,14 +196,26 @@ def render():
             st.error("Colonna 'priority_score' non trovata nei dati")
             return
 
-        month_columns = get_month_columns(df_top)
+        # Colonne da mostrare e loro nomi visivi
+        display_columns = ["DES_LOCALE", "GENERE", "INDIRIZZO", "TOTALE_EVENTI",
+                           "priority_score", "fascia_cell", "peer_comp", "pct_last6m"]
 
-        # Prepara le colonne da mostrare nella tabella
-        display_columns = [col for col in df_top.columns if col not in month_columns]
+        column_mapping = {
+            "DES_LOCALE": "Nome Locale",
+            "GENERE": "Genere",
+            "INDIRIZZO": "Indirizzo",
+            "TOTALE_EVENTI": "Eventi Totali",
+            "priority_score": "Priority Score",
+            "fascia_cell": "Livello Attività",
+            "peer_comp": "Indice di Concorrenza",
+            "pct_last6m": "% Eventi vs Storico"
+        }
+
+        df_to_display = df_top[display_columns].rename(columns=column_mapping)
 
         # ------------------ Tabella interattiva ------------------
         selected_row = st.dataframe(
-            df_top[display_columns],
+            df_to_display,
             width="stretch",
             hide_index=True,
             on_select="rerun",
@@ -222,14 +230,12 @@ def render():
             selected_idx = selected_row.selection['rows'][0]
             selected_locale_data = df_top.iloc[[selected_idx]]
 
-            locale_name = selected_locale_data.iloc[0].get('nome',
-                                                           selected_locale_data.iloc[0].get('name',
-                                                                                            f'Locale #{selected_idx + 1}'))
+            locale_name = selected_locale_data.iloc[0].get('DES_LOCALE', f'Locale #{selected_idx + 1}')
             priority_score = selected_locale_data.iloc[0].get('priority_score', 'N/A')
 
             st.info(f"📍 **Locale selezionato:** {locale_name} | **Priority Score:** {priority_score}")
 
-            create_events_timeline_chart(selected_locale_data, month_columns)
+            create_events_timeline_chart(selected_locale_data)
 
         else:
             st.info("👆 Seleziona una riga nella tabella sopra per visualizzare l'andamento degli eventi mensili")
@@ -238,7 +244,6 @@ def render():
     with col2:
         st.subheader("📊 Statistiche")
 
-        # Priority Score metrics
         if 'priority_score' in df_top.columns:
             avg_score = df_top['priority_score'].mean()
             max_score = df_top['priority_score'].max()
@@ -248,7 +253,6 @@ def render():
             st.metric("Priority Score Max", f"{max_score:.2f}")
             st.metric("Priority Score Min", f"{min_score:.2f}")
 
-        # ------------------ Donut generi top N ------------------
         st.subheader("Distribuzione Generi")
         if 'GENERE' in df_top.columns:
             genre_counts_top = df_top['GENERE'].value_counts()

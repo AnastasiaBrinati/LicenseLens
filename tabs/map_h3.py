@@ -133,7 +133,7 @@ def render():
         selected_city = st.selectbox("Seleziona città:", available_cities, index=0, key="filter_city_auto")
     available_genres = sorted(GENERI_PRIORITARI) + ["Altro"]
     with col2:
-        selected_genres = st.multiselect("Seleziona genere:", available_genres, default=available_genres, key="filter_genre_auto")
+        selected_genres = st.multiselect("Generi:", available_genres, default=available_genres, key="filter_genre_auto")
 
     filters_key = (selected_city, tuple(sorted(selected_genres)))
     needs_update = st.session_state.last_filters != filters_key
@@ -158,10 +158,13 @@ def render():
     df_filtered = st.session_state.df_filtered_h3
     center_lat, center_lon = st.session_state.map_center
     if df_filtered is not None:
-        col_map, col_stats = st.columns([2,1])
+        col_map, col_stats = st.columns([2, 1])
         with col_map:
-            folium_map = build_map(df_filtered, center_lat, center_lon)
-            st_folium(folium_map, width=1200, height=800, returned_objects=[])
+            # Spinner durante il caricamento della mappa
+            with st.spinner("⏳ Caricamento mappa..."):
+                folium_map = build_map(df_filtered, center_lat, center_lon)
+                st_folium(folium_map, width=1200, height=800)
+
         with col_stats:
             if not df_filtered.empty:
                 st.subheader("📊 Statistiche - ultimi 12 mesi")
