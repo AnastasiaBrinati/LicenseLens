@@ -1,20 +1,15 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 import glob
 from datetime import datetime
 
-# Costanti
-DATA_DIR = os.getenv("DATA_DIR")
-
-
 def load_locali_data():
     """Carica tutti i file CSV locali_* dalla cartella DATA_DIR e aggiunge la colonna 'citta' dal nome file"""
-    pattern = f"{DATA_DIR}/locali_*.csv"
+    pattern = f"./data/locali_*.csv"
     csv_files = glob.glob(pattern)
 
     if not csv_files:
