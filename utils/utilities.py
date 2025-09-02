@@ -20,6 +20,28 @@ def load_base_map() -> Optional[dict]:
     with open(BASE_MAP_GEOJSON, "r", encoding="utf-8") as f:
         return json.load(f)
 
+
+@st.cache_data
+def load_geojson(path: str) -> Optional[dict]:
+    """
+    Carica un file GeoJSON da disco e restituisce un dizionario (parsed JSON).
+
+    Parametri:
+    - path: percorso del file GeoJSON da leggere
+
+    Restituisce:
+    - dict: contenuto del JSON se il file esiste
+    - None: se il file non esiste, segnala errore con st.error
+
+    Tutte le chiamate successive con lo stesso path saranno cache-hit.
+    """
+    if not path or not os.path.exists(path):
+        st.error(f"⚠️ File GeoJSON non trovato: {path}")
+        return None
+
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
 @st.cache_data
 def list_available_cities() -> list:
     all_csv = [f for f in os.listdir(DATA_DIR) if f.startswith("locali_") and f.endswith(".csv")]

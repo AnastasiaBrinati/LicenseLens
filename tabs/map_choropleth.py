@@ -6,23 +6,16 @@ from folium import Element
 from streamlit_folium import st_folium
 from dotenv import load_dotenv
 import branca
-from utils.utilities import fmt, load_base_map, load_csv_city, list_available_cities
+from utils.utilities import fmt, load_base_map, load_csv_city, list_available_cities, load_geojson
 
 # ===================== Config =====================
 load_dotenv()
-DATA_DIR = os.getenv("DATA_DIR", "./data")
-LAYER_GEOJSON = os.path.join(DATA_DIR, "geo", "choropleth_layer.geojson")
+DATA_DIR = os.getenv("DATA_DIR")
+H3_LAYER = os.path.join(DATA_DIR, "geo", "choropleth_layer.geojson")
 gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
 GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.strip()])
 
 # ===================== Caching =====================
-def load_h3_layer():
-    if not os.path.exists(LAYER_GEOJSON):
-        st.error(f"⚠️ Layer H3 non trovato: {LAYER_GEOJSON}")
-        return None
-    with open(LAYER_GEOJSON, "r", encoding="utf-8") as f:
-        return json.load(f)
-
 def build_map(df_filtered, geojson_layer, center_lat, center_lon):
     m = folium.Map(location=[center_lat, center_lon], zoom_start=8, control_scale=True)
     geojson_base = load_base_map()
@@ -119,7 +112,7 @@ def render():
     df_filtered = df_city[df_city["GENERE_DISPLAY"].isin(selected_genres)]
 
     # Carica layer H3
-    geojson_layer = load_h3_layer()
+    geojson_layer = load_geojson(H3_LAYER)
     if geojson_layer is None:
         return
 

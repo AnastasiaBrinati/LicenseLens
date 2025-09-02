@@ -3,22 +3,16 @@ import pandas as pd
 import numpy as np
 import folium, os, json
 from streamlit_folium import st_folium
-from utils.utilities import fmt, load_base_map, load_csv_city, list_available_cities
+from utils.utilities import fmt, load_base_map, load_csv_city, list_available_cities, load_geojson
 from dotenv import load_dotenv
 
 # ===================== Config =====================
 load_dotenv()
-DATA_DIR = os.getenv("DATA_DIR", "./data")
+DATA_DIR = os.getenv("DATA_DIR")
+H3_LAYER = os.path.join(DATA_DIR, "geo", "h3_polygons.geojson")
 gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
 GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.strip()])
 ROMA_LAT, ROMA_LON = os.getenv("ROMA_LAT", 0), os.getenv("ROMA_LON", 0)
-
-# ===================== Caching =====================
-@st.cache_data
-def load_h3_polygons():
-    geo_file = os.path.join(DATA_DIR, "geo", "h3_polygons.geojson")
-    with open(geo_file, "r", encoding="utf-8") as f:
-        return json.load(f)
 
 # ===================== Map builder =====================
 def build_map(df_filtered, center_lat, center_lon):
@@ -36,9 +30,9 @@ def build_map(df_filtered, center_lat, center_lon):
             }
         ).add_to(m)
 
-    geojson_h3 = load_h3_polygons()
+    geojson_layer = load_geojson(H3_LAYER)
     folium.GeoJson(
-        geojson_h3,
+        geojson_layer,
         name="Fasce H3",
         style_function=lambda feature: {
             "color": feature["properties"]["color"],
