@@ -1,23 +1,23 @@
 import streamlit as st
+from streamlit_option_menu import option_menu
 from tabs import metrics, map_h3, map_choropleth
 
-import streamlit as st
+st.set_page_config(page_title="Dashboard Eventi", layout="wide")
 
-# Configurazione pagina Streamlit
-st.set_page_config(
-    page_title="Dashboard Eventi",
-    layout="wide",
-    initial_sidebar_state="expanded",
+# Menu orizzontale moderno tipo tab
+active_tab = option_menu(
+    menu_title=None,  # nessun titolo sopra le tab
+    options=["Mappa Attività", "Mappa Priorità", "Metriche"],
+    icons=["map", "map-fill", "bar-chart"],  # icone opzionali
+    menu_icon="cast",
+    default_index=0,
+    orientation="horizontal",
 )
 
-# Crea le tab orizzontali - ora 4 tab separate
-tab1, tab2, tab3  = st.tabs(["Mappa Attività", "Mappa Priorità", "Metriche"])
-
-with tab1:
+# Caricamento solo della tab attiva (indipendente)
+if active_tab == "Mappa Attività":
     map_h3.render()
-
-with tab2:
+elif active_tab == "Mappa Priorità":
     map_choropleth.render()
-
-with tab3:
+elif active_tab == "Metriche":
     metrics.render()

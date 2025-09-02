@@ -123,7 +123,7 @@ def build_choropleth_map(df, cell_ps, cmap, center_lat, center_lon):
 def render():
     st.header("Zone con priorità di attenzione")
     st.info(
-        "⚠️ Cos'è il Priority Score?\n"
+        "⚠️ **Cos'è il Priority Score?**\n"
         "Il Priority Score aiuta a identificare le aree potenzialmente anomale rispetto agli eventi dichiarati dai locali."
     )
 
