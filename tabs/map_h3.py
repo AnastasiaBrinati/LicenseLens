@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import folium, os, json
 from streamlit_folium import st_folium
+from utils.utilities import fmt
+
 from dotenv import load_dotenv
 
 # ===================== Config =====================
@@ -10,19 +12,8 @@ load_dotenv()
 DATA_DIR = os.getenv("DATA_DIR", "./data")
 BASE_MAP_GEOJSON = os.path.join(DATA_DIR, "geo", "seprag.geojson")
 MONTHS_WIN = int(os.getenv("MONTHS_WIN", "12"))
-ROMA_LAT, ROMA_LON = 41.9027835, 12.4963655
-
 GENERI_PRIORITARI = {"Bar", "Discoteca", "Ristorante", "All'aperto", "Circolo", "Albergo/Hotel"}
-
-# ===================== Utility =====================
-def fmt(x, dec=3, nd="n.d."):
-    try:
-        v = float(x)
-        if np.isnan(v):
-            return nd
-        return f"{v:.{dec}f}" if dec > 0 else f"{v:.0f}"
-    except:
-        return nd
+ROMA_LAT, ROMA_LON = os.getenv("ROMA_LAT"),  os.getenv("ROMA_LON")
 
 # ===================== Caching =====================
 @st.cache_data
@@ -57,6 +48,7 @@ def list_available_cities() -> list:
 
 # ===================== Map builder =====================
 def build_map(df_filtered, center_lat, center_lon):
+
     m = folium.Map(location=[center_lat, center_lon], zoom_start=8, control_scale=False, prefer_canvas=True)
     geojson_base = load_base_map()
     if geojson_base:
@@ -163,7 +155,7 @@ def render():
             # Spinner durante il caricamento della mappa
             with st.spinner("⏳ Caricamento mappa..."):
                 folium_map = build_map(df_filtered, center_lat, center_lon)
-                st_folium(folium_map, width=1200, height=800)
+                st_folium(folium_map, width=1200, height=800, returned_objects=[])
 
         with col_stats:
             if not df_filtered.empty:

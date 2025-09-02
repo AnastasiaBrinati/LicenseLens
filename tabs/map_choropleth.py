@@ -6,6 +6,7 @@ from folium import Element
 from streamlit_folium import st_folium
 from dotenv import load_dotenv
 import branca
+from utils.utilities import fmt
 
 # ===================== Config =====================
 load_dotenv()
@@ -13,17 +14,8 @@ DATA_DIR = os.getenv("DATA_DIR", "./data")
 LAYER_GEOJSON = os.path.join(DATA_DIR, "geo", "choropleth_layer.geojson")
 BASE_MAP_GEOJSON = os.path.join(DATA_DIR, "geo", "seprag.geojson")
 GENERI_PRIORITARI = {"Bar", "Discoteca", "Ristorante", "All'aperto", "Circolo", "Albergo/Hotel"}
-ROMA_LAT, ROMA_LON = 41.9027835, 12.4963655
+ROMA_LAT, ROMA_LON = os.getenv("ROMA_LAT"),  os.getenv("ROMA_LON")
 
-# ===================== Utility =====================
-def fmt(x, dec=3, nd="n.d."):
-    try:
-        v = float(x)
-        if v != v:  # check NaN
-            return nd
-        return f"{v:.{dec}f}" if dec > 0 else f"{v:.0f}"
-    except:
-        return nd
 
 @st.cache_data
 def load_csv_files():
@@ -52,6 +44,7 @@ def load_h3_layer():
         return json.load(f)
 
 def build_map(df_filtered, geojson_layer, center_lat, center_lon):
+
     m = folium.Map(location=[center_lat, center_lon], zoom_start=8, control_scale=True)
 
     # Confini base
