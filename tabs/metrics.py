@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
@@ -8,7 +9,7 @@ import glob
 from datetime import datetime
 
 # Costanti
-DATA_DIR = "data"  # Modifica secondo la tua struttura
+DATA_DIR = os.getenv("DATA_DIR")
 
 
 def load_locali_data():

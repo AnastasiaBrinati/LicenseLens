@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import folium, os, json
 from streamlit_folium import st_folium
-from utils.utilities import fmt, load_base_map, load_csv_city, list_available_cities, load_geojson
+from utils.utilities import fmt, load_csv_city, list_available_cities, load_geojson
 from dotenv import load_dotenv
 
 # ===================== Config =====================
@@ -17,7 +17,7 @@ ROMA_LAT, ROMA_LON = os.getenv("ROMA_LAT", 0), os.getenv("ROMA_LON", 0)
 # ===================== Map builder =====================
 def build_map(df_filtered, center_lat, center_lon):
     m = folium.Map(location=[center_lat, center_lon], zoom_start=8, control_scale=False, prefer_canvas=True)
-    geojson_base = load_base_map()
+    geojson_base = load_geojson()
     if geojson_base:
         folium.GeoJson(
             geojson_base,

@@ -6,7 +6,7 @@ from folium import Element
 from streamlit_folium import st_folium
 from dotenv import load_dotenv
 import branca
-from utils.utilities import fmt, load_base_map, load_csv_city, list_available_cities, load_geojson
+from utils.utilities import fmt, load_csv_city, list_available_cities, load_geojson
 
 # ===================== Config =====================
 load_dotenv()
@@ -18,7 +18,7 @@ GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.s
 # ===================== Caching =====================
 def build_map(df_filtered, geojson_layer, center_lat, center_lon):
     m = folium.Map(location=[center_lat, center_lon], zoom_start=8, control_scale=True)
-    geojson_base = load_base_map()
+    geojson_base = load_geojson()
     if geojson_base:
         folium.GeoJson(
             geojson_base,

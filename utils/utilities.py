@@ -3,39 +3,24 @@ from typing import Optional
 import streamlit as st
 import pandas as pd
 from dotenv import load_dotenv
+import math
 
 load_dotenv()
 DATA_DIR = os.getenv("DATA_DIR", "./data")
-BASE_MAP_GEOJSON = os.path.join(DATA_DIR, "geo", "seprag.geojson")
 
 @st.cache_data
-def load_base_map() -> Optional[dict]:
+def load_geojson(path: Optional[str] = None) -> Optional[dict]:
     """
-    Carica il file GeoJSON della mappa base.
-    Restituisce un dizionario (parsed JSON) oppure None se il file non esiste.
-    Risultato memorizzato in cache per efficienza.
-    """
-    if not os.path.exists(BASE_MAP_GEOJSON):
-        return None
-    with open(BASE_MAP_GEOJSON, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-@st.cache_data
-def load_geojson(path: str) -> Optional[dict]:
-    """
-    Carica un file GeoJSON da disco e restituisce un dizionario (parsed JSON).
-
-    Parametri:
-    - path: percorso del file GeoJSON da leggere
-
+    Carica un file GeoJSON da disco.
+    Se path non è fornito, carica il file della mappa base (BASE_MAP_GEOJSON).
     Restituisce:
     - dict: contenuto del JSON se il file esiste
-    - None: se il file non esiste, segnala errore con st.error
-
-    Tutte le chiamate successive con lo stesso path saranno cache-hit.
+    - None: se il file non esiste, mostra st.error
     """
-    if not path or not os.path.exists(path):
+    if path is None:
+        path = os.path.join(DATA_DIR, "geo", "seprag.geojson")
+
+    if not os.path.exists(path):
         st.error(f"⚠️ File GeoJSON non trovato: {path}")
         return None
 
@@ -78,7 +63,7 @@ def load_csv_city(city: str) -> pd.DataFrame:
 def fmt(x, dec=3, nd="n.d."):
     try:
         v = float(x)
-        if v != v:  # check NaN
+        if math.isnan(v):
             return nd
         return f"{v:.{dec}f}" if dec > 0 else f"{v:.0f}"
     except:
