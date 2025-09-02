@@ -6,36 +6,16 @@ from folium import Element
 from streamlit_folium import st_folium
 from dotenv import load_dotenv
 import branca
-from utils.utilities import fmt
+from utils.utilities import fmt, load_base_map, load_csv_city, list_available_cities
 
 # ===================== Config =====================
 load_dotenv()
 DATA_DIR = os.getenv("DATA_DIR", "./data")
 LAYER_GEOJSON = os.path.join(DATA_DIR, "geo", "choropleth_layer.geojson")
-BASE_MAP_GEOJSON = os.path.join(DATA_DIR, "geo", "seprag.geojson")
-GENERI_PRIORITARI = {"Bar", "Discoteca", "Ristorante", "All'aperto", "Circolo", "Albergo/Hotel"}
-ROMA_LAT, ROMA_LON = os.getenv("ROMA_LAT"),  os.getenv("ROMA_LON")
+gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
+GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.strip()])
 
-
-@st.cache_data
-def load_csv_files():
-    all_files = [f for f in os.listdir(DATA_DIR) if f.startswith("locali_") and f.endswith(".csv")]
-    dfs = []
-    for fname in all_files:
-        city_name = fname.replace("locali_", "").replace(".csv", "")
-        df_tmp = pd.read_csv(os.path.join(DATA_DIR, fname))
-        for col in ["LATITUDINE", "LONGITUDINE"]:
-            df_tmp[col] = pd.to_numeric(df_tmp[col], errors="coerce")
-        df_tmp["CITY"] = city_name
-        dfs.append(df_tmp)
-    return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
-
-def load_base_map():
-    if os.path.exists(BASE_MAP_GEOJSON):
-        with open(BASE_MAP_GEOJSON, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return None
-
+# ===================== Caching =====================
 def load_h3_layer():
     if not os.path.exists(LAYER_GEOJSON):
         st.error(f"⚠️ Layer H3 non trovato: {LAYER_GEOJSON}")
@@ -44,16 +24,17 @@ def load_h3_layer():
         return json.load(f)
 
 def build_map(df_filtered, geojson_layer, center_lat, center_lon):
-
     m = folium.Map(location=[center_lat, center_lon], zoom_start=8, control_scale=True)
-
-    # Confini base
     geojson_base = load_base_map()
     if geojson_base:
         folium.GeoJson(
             geojson_base,
             name="Confini Base",
-            style_function=lambda x: {"fillColor": "none", "color": "#333333", "weight": 2, "fillOpacity": 0}
+            style_function=lambda x: {
+                "fillColor": "none",
+                "color": "#333333",
+                "weight": 2,
+                "fillOpacity": 0}
         ).add_to(m)
 
     # Colormap
@@ -115,14 +96,12 @@ def build_map(df_filtered, geojson_layer, center_lat, center_lon):
 
 def render():
     st.header("Zone con priorità di attenzione")
-    st.info("⚠️ **Cos'è il Priority Score?** Il Priority Score aiuta a identificare le aree potenzialmente anomale rispetto agli eventi dichiarati dai locali.")
+    st.info(
+        "⚠️ **Cos'è il Priority Score?**\n"
+        "Il Priority Score aiuta a identificare le aree potenzialmente anomale rispetto agli eventi dichiarati dai locali."
+    )
 
-    df = load_csv_files()
-    if df.empty:
-        st.error("⚠️ Nessun file valido trovato in data/locali_*.csv")
-        return
-
-    available_cities = sorted(df["CITY"].dropna().unique().tolist())
+    available_cities = list_available_cities()
     available_genres = sorted(GENERI_PRIORITARI) + ["Altro"]
 
     col1, col2 = st.columns(2)
@@ -132,7 +111,7 @@ def render():
         selected_genres = st.multiselect("Generi:", available_genres, default=available_genres)
 
     # Filtra punti
-    df_city = df[df["CITY"] == selected_city].copy()
+    df_city = load_csv_city(selected_city)
     if df_city.empty:
         st.warning("Nessun dato per la città selezionata.")
         return

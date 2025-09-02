@@ -3,17 +3,15 @@ import pandas as pd
 import numpy as np
 import folium, os, json
 from streamlit_folium import st_folium
-from utils.utilities import fmt
-
+from utils.utilities import fmt, load_base_map, load_csv_city, list_available_cities
 from dotenv import load_dotenv
 
 # ===================== Config =====================
 load_dotenv()
 DATA_DIR = os.getenv("DATA_DIR", "./data")
-BASE_MAP_GEOJSON = os.path.join(DATA_DIR, "geo", "seprag.geojson")
-MONTHS_WIN = int(os.getenv("MONTHS_WIN", "12"))
-GENERI_PRIORITARI = {"Bar", "Discoteca", "Ristorante", "All'aperto", "Circolo", "Albergo/Hotel"}
-ROMA_LAT, ROMA_LON = os.getenv("ROMA_LAT"),  os.getenv("ROMA_LON")
+gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
+GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.strip()])
+ROMA_LAT, ROMA_LON = os.getenv("ROMA_LAT", 0), os.getenv("ROMA_LON", 0)
 
 # ===================== Caching =====================
 @st.cache_data
@@ -22,40 +20,15 @@ def load_h3_polygons():
     with open(geo_file, "r", encoding="utf-8") as f:
         return json.load(f)
 
-@st.cache_data
-def load_base_map(geojson_path: str = BASE_MAP_GEOJSON):
-    if not os.path.exists(geojson_path):
-        return None
-    with open(geojson_path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-@st.cache_data
-def load_csv(city: str) -> pd.DataFrame:
-    path = os.path.join(DATA_DIR, f"locali_{city}.csv")
-    df_city = pd.read_csv(path)
-    df_city["CITY"] = city
-    for col in ["LATITUDINE", "LONGITUDINE"]:
-        df_city[col] = pd.to_numeric(df_city[col], errors="coerce")
-    for c in ["events_total", "pct_last6m", "peer_comp", "priority_score"]:
-        if c in df_city.columns:
-            df_city[c] = pd.to_numeric(df_city[c], errors="coerce")
-    return df_city
-
-@st.cache_data
-def list_available_cities() -> list:
-    all_csv = [f for f in os.listdir(DATA_DIR) if f.startswith("locali_") and f.endswith(".csv")]
-    return sorted([f.replace("locali_", "").replace(".csv", "") for f in all_csv])
-
 # ===================== Map builder =====================
 def build_map(df_filtered, center_lat, center_lon):
-
     m = folium.Map(location=[center_lat, center_lon], zoom_start=8, control_scale=False, prefer_canvas=True)
     geojson_base = load_base_map()
     if geojson_base:
         folium.GeoJson(
             geojson_base,
             name="Confini Base",
-            style_function=lambda feature: {
+            style_function=lambda x: {
                 "fillColor": "none",
                 "color": "#333333",
                 "weight": 2,
@@ -81,6 +54,7 @@ def build_map(df_filtered, center_lat, center_lon):
         ),
     ).add_to(m)
 
+    # Punti filtrati
     if not df_filtered.empty:
         for _, r in df_filtered.iterrows():
             lat, lon = float(r["LATITUDINE"]), float(r["LONGITUDINE"])
@@ -89,7 +63,7 @@ def build_map(df_filtered, center_lat, center_lon):
                 f"<b>{r.get('DES_LOCALE', 'Senza nome')}</b><br>"
                 f"Città: {r['CITY']}<br>"
                 f"Genere: {r.get('GENERE', 'Altro')}<br>"
-                f"Eventi totali ({MONTHS_WIN} mesi): {fmt(r.get('events_total',0),0)}<br>"
+                f"Eventi totali (12 mesi): {fmt(r.get('events_total',0),0)}<br>"
                 f"Fascia: {fascia}",
                 max_width=320
             )
@@ -131,7 +105,7 @@ def render():
     needs_update = st.session_state.last_filters != filters_key
 
     if needs_update:
-        df = load_csv(selected_city).dropna(subset=["LATITUDINE", "LONGITUDINE"]).query(
+        df = load_csv_city(selected_city).dropna(subset=["LATITUDINE", "LONGITUDINE"]).query(
             "LATITUDINE!=0 & LONGITUDINE!=0"
         ).copy()
         df_filtered = df.copy()
