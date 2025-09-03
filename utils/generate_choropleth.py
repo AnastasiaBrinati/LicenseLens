@@ -5,6 +5,7 @@ import numpy as np
 from dotenv import load_dotenv
 import branca
 from streamlit import cache_data
+import h3
 
 # ===================== Config =====================
 load_dotenv()
@@ -17,53 +18,98 @@ def generate_choropleth(df: pd.DataFrame):
     """
     Genera i dati per la mappa choropleth: celle H3, colori e aggregazioni.
     Restituisce:
-      - cell_ps: DataFrame con colonne h3_cell, ps_mean, locali_count, events_sum, boundary, color
-      - cmap: colormap branca già scalata
+      - cell_ps: DataFrame con colonne
+          h3_cell, ps_mean, locali_count, ps_std, events_sum,
+          area_km2, density, dens_eff, score_cell, boundary, color
+      - cmap: colormap branca scalata su score_cell
     """
     if df.empty:
         return pd.DataFrame(), None
 
-    # Aggregazione per cella
+    # --- Aggregazione per cella ---
     agg_dict = {
         "priority_score": ["mean", "count", "std"],
-        "events_total": "sum" if "events_total" in df.columns else "count"
     }
-    cell_ps = df.groupby("h3_cell").agg(agg_dict).round(4)
+    # Se presente 'events_total' somma; altrimenti conta
+    if "events_total" in df.columns:
+        agg_dict["events_total"] = "sum"
+    else:
+        agg_dict["events_total"] = "count"
 
+    cell_ps = df.groupby("h3_cell").agg(agg_dict).round(4)
     if cell_ps.empty:
         return pd.DataFrame(), None
 
-    # Rinominazione colonne
+    # Flatten & rename
     cell_ps.columns = ['_'.join(col).strip() for col in cell_ps.columns.values]
-    cell_ps = cell_ps.reset_index().rename(columns={
+    ren = {
         'priority_score_mean': 'ps_mean',
         'priority_score_count': 'locali_count',
-        'priority_score_std': 'ps_std',
-        'events_total_sum': 'events_sum' if 'events_total_sum' in cell_ps.columns else 'events_sum'
-    })
+        'priority_score_std':  'ps_std',
+        'events_total_sum':    'events_sum',
+        'events_total_count':  'events_sum',  # se non c'è events_total, usiamo il count come proxy
+    }
+    cell_ps = cell_ps.reset_index().rename(columns=ren)
 
-    # Calcolo confini H3 e colore
-    vals = cell_ps['ps_mean'].values
-    vmin, vmax = float(np.nanmin(vals)), float(np.nanmax(vals))
-    if vmin == vmax:
-        vmax = vmin + 1e-6
+    # --- Area esagono (km^2) e densità ---
+    def _cell_area_km2(cell_id: str) -> float:
+        # 1) prova area specifica della cella (h3>=4)
+        try:
+            return h3.cell_area(cell_id, unit='km^2')
+        except Exception:
+            # 2) fallback: area media per risoluzione (h3 3.x)
+            try:
+                res = h3.get_resolution(cell_id)
+                return h3.hex_area(res, 'km^2')
+            except Exception:
+                return np.nan
+
+    cell_ps["area_km2"] = pd.to_numeric(
+        cell_ps["h3_cell"].apply(_cell_area_km2), errors="coerce"
+    )
+
+    n = pd.to_numeric(cell_ps["locali_count"], errors="coerce").fillna(0.0)
+    area = cell_ps["area_km2"].where(cell_ps["area_km2"] > 0)
+    density = (n / area).fillna(0.0)  # locali per km^2
+
+    # --- Densità "saturata": dens_eff = density / (density + k) ---
+    pos = density[density > 0]
+    k = float(np.median(pos)) if len(pos) else 1.0  # punto di mezza-saturazione
+    dens_eff = density / (density + k)
+
+    # --- Score per colorazione: ps_mean * densità saturata ---
+    ps_mean = pd.to_numeric(cell_ps["ps_mean"], errors="coerce").fillna(0.0)
+    cell_ps["density"]   = density
+    cell_ps["dens_eff"]  = dens_eff
+    cell_ps["score_cell"] = ps_mean * dens_eff
+
+    # --- Colormap robusta (quantili 5°–95°) su score_cell ---
+    vals = cell_ps["score_cell"].values
+    try:
+        vmin = float(np.nanpercentile(vals, 5))
+        vmax = float(np.nanpercentile(vals, 95))
+        if not np.isfinite(vmin) or not np.isfinite(vmax) or vmin == vmax:
+            raise ValueError
+    except Exception:
+        vmin = float(np.nanmin(vals)) if np.isfinite(np.nanmin(vals)) else 0.0
+        vmax = float(np.nanmax(vals)) if np.isfinite(np.nanmax(vals)) else 1.0
+        if vmin == vmax:
+            vmax = vmin + 1e-6
+
     cmap = branca.colormap.linear.YlOrRd_09.scale(vmin, vmax)
 
-    boundaries = []
-    colors = []
-
+    # --- Confini H3 e colore (Folium usa (lat, lon)) ---
+    boundaries, colors = [], []
     for _, row in cell_ps.iterrows():
-        # Restituisce lista di tuple [(lat, lon), ...] adatta a Folium
-        boundary = [(lat, lon) for lat, lon in h3.cell_to_boundary(row['h3_cell'])]
-        color = cmap(row['ps_mean'])
+        boundary = [(lat, lon) for lat, lon in h3.cell_to_boundary(row["h3_cell"])]
+        color = cmap(row["score_cell"])
         boundaries.append(boundary)
         colors.append(color)
 
-    cell_ps['boundary'] = boundaries
-    cell_ps['color'] = colors
+    cell_ps["boundary"] = boundaries
+    cell_ps["color"]    = colors
 
     return cell_ps, cmap
-
 
 # ===================== Funzioni =====================
 def load_all_locali() -> pd.DataFrame:

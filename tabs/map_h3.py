@@ -19,7 +19,7 @@ ROMA_LAT, ROMA_LON = os.getenv("ROMA_LAT", 0), os.getenv("ROMA_LON", 0)
 def build_map(df_filtered, center_lat, center_lon):
     m = folium.Map(
         location=[center_lat, center_lon],
-        zoom_start=8,
+        zoom_start=12,
         control_scale=False,
         prefer_canvas=True
     )
@@ -139,11 +139,16 @@ def render():
                 st.subheader("📊 Statistiche - ultimi 12 mesi")
                 total_locali = len(df_filtered)
                 total_eventi = df_filtered["events_total"].sum() if "events_total" in df_filtered.columns else 0
-                st.metric("Totale Locali", total_locali)
-                st.metric("Totale Eventi", total_eventi)
+                st.metric("Totale Locali", f"{total_locali:,}")
+                st.metric("Totale Eventi", f"{int(total_eventi):,}")
+
                 for fascia in sorted(df_filtered["fascia_cell"].unique()):
                     fascia_data = df_filtered[df_filtered["fascia_cell"] == fascia]
                     count = len(fascia_data)
                     pct = (count / total_locali * 100) if total_locali > 0 else 0
                     labels = {1: "🔴 Alta attività", 2: "🟡 Media attività", 3: "🔵 Bassa attività"}
-                    st.metric(labels.get(int(fascia), f"Fascia {fascia}"), f"{count} ({pct:.1f}%)")
+                    st.metric(
+                        labels.get(int(fascia), f"Fascia {fascia}"),
+                        f"{count:,} ({pct:.1f}%)"
+                    )
+
