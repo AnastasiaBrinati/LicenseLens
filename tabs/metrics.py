@@ -8,8 +8,9 @@ from pathlib import Path
 import glob
 from datetime import datetime
 from utils.sonar import perform_sonar_search
-#from deep_search import display_events_table
+from dotenv import load_dotenv
 
+load_dotenv()
 gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
 GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.strip()])
 
@@ -27,7 +28,6 @@ def load_locali_data():
     for file in csv_files:
         try:
             df = pd.read_csv(file)
-            # Aggiungi colonna 'citta' dal nome del file
             city_name = Path(file).stem.replace("locali_", "")
             df['citta'] = city_name
             dataframes.append(df)
@@ -47,37 +47,28 @@ def get_month_columns(df):
     for col in df.columns:
         if isinstance(col, str) and '/' in col:
             try:
-                # Verifica se è nel formato MM/YYYY
                 month, year = col.split('/')
                 if len(month) == 2 and len(year) == 4:
                     datetime.strptime(col, '%m/%Y')
                     month_cols.append(col)
             except (ValueError, TypeError):
                 continue
-
-    # Ordina le colonne cronologicamente
     month_cols.sort(key=lambda x: datetime.strptime(x, '%m/%Y'))
     return month_cols
 
 
 def create_events_timeline_chart(df_row):
     month_columns = get_month_columns(df_row)
-    """Crea il line plot dell'andamento eventi mensili"""
     if df_row.empty or not month_columns:
         st.info("Nessun dato disponibile per il grafico timeline")
         return
 
-    # Estrai i dati dei mesi per la riga selezionata
     row_data = df_row.iloc[0]
-
-    # Prepara i dati per il grafico
-    months = []
-    events = []
+    months, events = [], []
 
     for month_col in month_columns:
         if month_col in row_data:
             months.append(month_col)
-            # Gestisci valori NaN o non numerici
             value = row_data[month_col]
             if pd.isna(value):
                 events.append(0)
@@ -91,27 +82,19 @@ def create_events_timeline_chart(df_row):
         st.info("Nessun dato mensile trovato")
         return
 
-    # Crea il grafico
     fig, ax = plt.subplots(figsize=(12, 6))
-
-    # Line plot con seaborn
     sns.lineplot(x=range(len(months)), y=events, marker='o', linewidth=2,
                  markersize=8, ax=ax, color='#1f77b4')
 
-    # Personalizza il grafico
     ax.set_xticks(range(len(months)))
     ax.set_xticklabels(months, rotation=45, ha='right')
     ax.set_xlabel('Mese', fontsize=12)
     ax.set_ylabel('Numero di Eventi', fontsize=12)
 
-    # Aggiungi il nome del locale al titolo se disponibile
-    locale_name = row_data.get('DES_LOCALE', row_data.get('DES_LOCALE', 'Locale Selezionato'))
+    locale_name = row_data.get('DES_LOCALE', 'Locale Selezionato')
     ax.set_title(f'Andamento Eventi Mensili - {locale_name}', fontsize=14, fontweight='bold')
-
-    # Aggiungi griglia
     ax.grid(True, alpha=0.3)
 
-    # Evidenzia i punti con i valori
     for i, (month, event_count) in enumerate(zip(months, events)):
         if event_count > 0:
             ax.annotate(f'{int(event_count)}',
@@ -122,7 +105,6 @@ def create_events_timeline_chart(df_row):
                         fontsize=9,
                         alpha=0.8)
 
-    # Imposta limiti y per una migliore visualizzazione
     if max(events) > 0:
         ax.set_ylim(0, max(events) * 1.1)
 
@@ -132,10 +114,8 @@ def create_events_timeline_chart(df_row):
 
 
 def render():
-    """Funzione principale per renderizzare la tab Metrics"""
     st.header("Top priority venues")
 
-    # Carica dati
     with st.spinner("Caricamento dati..."):
         df = load_locali_data()
 
@@ -149,7 +129,7 @@ def render():
         selected_cities = st.multiselect(
             "Seleziona città",
             options=cities,
-            default=cities[0],  # tutte selezionate di default
+            default=cities[0],
             key="metrics_cities_tab"
         )
 
@@ -167,10 +147,10 @@ def render():
     col1, col2 = st.columns([2, 1])
 
     with col1:
-        # ------------------ Filtro Generi principali prefissati ------------------
+        # ------------------ Filtro Generi principali ------------------
         if 'GENERE' in df.columns:
-            df['GENERE_CAT'] = df['GENERE'].apply(lambda x: x if x in GENERI_PRIORITARI else 'Altro')
-
+            df['GENERE_CAT'] = df['GENERE'].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
+            print(df['GENERE_CAT'].unique())
             selected_genres = st.multiselect(
                 "Generi:",
                 options=df['GENERE_CAT'].unique(),
@@ -189,17 +169,14 @@ def render():
         # ------------------ Slider Top N locale ------------------
         top_n = st.slider("Top N locali:", min_value=5, max_value=50, value=10, key="metrics_top_n")
 
-        # Ordina per priority_score e prendi top N
         if 'priority_score' in df_filtered.columns:
             df_top = df_filtered.nlargest(top_n, 'priority_score').reset_index(drop=True)
         else:
             st.error("Colonna 'priority_score' non trovata nei dati")
             return
 
-        # Colonne da mostrare e loro nomi visivi
         display_columns = ["DES_LOCALE", "GENERE", "INDIRIZZO", "TOTALE_EVENTI",
                            "priority_score", "fascia_cell", "peer_comp", "pct_last6m"]
-
         column_mapping = {
             "DES_LOCALE": "Nome Locale",
             "GENERE": "Genere",
@@ -210,7 +187,6 @@ def render():
             "peer_comp": "Indice di Concorrenza",
             "pct_last6m": "% Eventi vs Storico"
         }
-
         df_to_display = df_top[display_columns].rename(columns=column_mapping)
 
         # ------------------ Tabella interattiva ------------------
@@ -234,25 +210,40 @@ def render():
             priority_score = selected_locale_data.iloc[0].get('priority_score', 'N/A')
 
             st.info(f"📍 **Locale selezionato:** {locale_name} | **Priority Score:** {priority_score}")
-
             create_events_timeline_chart(selected_locale_data)
 
             # ----------------- Bottone Deep Research -----------------
+            button_key = f"deep_search_{selected_idx}"
+            research_file = "./data/deep/sonar.csv"
 
-            if st.button(f"🔍 Deep Research: {locale_name}"):
-                with st.spinner(f"Ricerca in corso su Sonar per {locale_name}..."):
+            if st.button(f"🔍 Deep Research: {locale_name}", key=button_key):
+
+                # Leggi il file CSV se esiste
+                if os.path.exists(research_file):
                     try:
-                        df_results = perform_sonar_search(locale_name)
-
-                        if df_results.empty:
-                            st.info(f"Nessun evento trovato per {locale_name}")
-                        else:
-                            st.success(f"Trovati {len(df_results)} eventi per {locale_name}")
-                            # Mostra tabella interattiva come in deep_search.py
-                            #display_events_table(df_results, locale_name)
-
+                        df_research = pd.read_csv(research_file)
                     except Exception as e:
-                        st.error(f"Errore durante la ricerca Sonar: {str(e)}")
+                        st.error(f"Impossibile leggere {research_file}: {e}")
+                        df_research = pd.DataFrame(columns=['data_deep_search', 'nome_locale', 'descrizione'])
+                else:
+                    df_research = pd.DataFrame(columns=['data_deep_search', 'nome_locale', 'descrizione'])
+
+                # Controlla se il locale è già presente
+                existing_entry = df_research[df_research['nome_locale'] == locale_name]
+
+                if not existing_entry.empty:
+                    descrizione = existing_entry.iloc[0]['descrizione']
+                    st.info(f"✅ Il locale **{locale_name}** è già stato ricercato.")
+                    st.markdown(f"**Descrizione trovata:**\n\n{descrizione}")
+                else:
+                    with st.spinner(f"Ricerca in corso su Sonar per {locale_name}..."):
+                        try:
+                            result = perform_sonar_search(locale_name)
+
+                            st.markdown(f"**Descrizione deep search:**\n\n{result}")
+
+                        except Exception as e:
+                            st.error(f"Errore durante la ricerca Sonar: {str(e)}")
 
         else:
             st.info("👆 Seleziona una riga nella tabella sopra per visualizzare l'andamento degli eventi mensili")
@@ -273,7 +264,6 @@ def render():
         st.subheader("Distribuzione Generi")
         if 'GENERE' in df_top.columns:
             genre_counts_top = df_top['GENERE'].value_counts()
-
             fig_donut, ax_donut = plt.subplots(figsize=(6, 6))
             sizes = genre_counts_top.values
             labels = genre_counts_top.index
