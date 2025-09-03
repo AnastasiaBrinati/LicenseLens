@@ -7,6 +7,7 @@ import seaborn as sns
 from pathlib import Path
 import glob
 from datetime import datetime
+import webbrowser
 from utils.sonar import perform_sonar_search
 from dotenv import load_dotenv
 
@@ -123,20 +124,42 @@ def render():
         st.error("Impossibile caricare i dati. Verifica la presenza dei file CSV.")
         return
 
-    # ------------------ Filtro Città ------------------
+    # ------------------ Filtri affiancati ------------------
     if 'citta' in df.columns:
-        cities = sorted(df['citta'].dropna().unique().tolist())
-        selected_cities = st.multiselect(
-            "Seleziona città",
-            options=cities,
-            default=cities[0],
-            key="metrics_cities_tab"
-        )
+        col_f1, col_f2 = st.columns(2)
 
+        with col_f1:
+            cities = sorted(df['citta'].dropna().unique().tolist())
+            selected_cities = st.multiselect(
+                "Seleziona città",
+                options=cities,
+                default=cities[0],
+                key="metrics_cities_tab"
+            )
+
+        with col_f2:
+            if 'GENERE' in df.columns:
+                df['GENERE_CAT'] = df['GENERE'].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
+                selected_genres = st.multiselect(
+                    "Generi:",
+                    options=df['GENERE_CAT'].unique(),
+                    default=df['GENERE_CAT'].unique(),
+                    key="metrics_genres_tab"
+                )
+            else:
+                selected_genres = None
+
+        # Applica i filtri
         if selected_cities:
             df = df[df['citta'].isin(selected_cities)]
         else:
             st.warning("Seleziona almeno una città.")
+            return
+
+        if selected_genres:
+            df = df[df['GENERE_CAT'].isin(selected_genres)]
+        elif 'GENERE' in df.columns:
+            st.warning("Seleziona almeno un genere.")
             return
 
     if df.empty:
@@ -147,29 +170,11 @@ def render():
     col1, col2 = st.columns([2, 1])
 
     with col1:
-        # ------------------ Filtro Generi principali ------------------
-        if 'GENERE' in df.columns:
-            df['GENERE_CAT'] = df['GENERE'].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
-            selected_genres = st.multiselect(
-                "Generi:",
-                options=df['GENERE_CAT'].unique(),
-                default=df['GENERE_CAT'].unique(),
-                key="metrics_genres_tab"
-            )
-
-            if selected_genres:
-                df_filtered = df[df['GENERE_CAT'].isin(selected_genres)]
-            else:
-                st.warning("Seleziona almeno un genere.")
-                return
-        else:
-            df_filtered = df
-
         # ------------------ Slider Top N locale ------------------
         top_n = st.slider("Top N locali:", min_value=5, max_value=50, value=10, key="metrics_top_n")
 
-        if 'priority_score' in df_filtered.columns:
-            df_top = df_filtered.nlargest(top_n, 'priority_score').reset_index(drop=True)
+        if 'priority_score' in df.columns:
+            df_top = df.nlargest(top_n, 'priority_score').reset_index(drop=True)
         else:
             st.error("Colonna 'priority_score' non trovata nei dati")
             return
@@ -211,38 +216,42 @@ def render():
             st.info(f"📍 **Locale selezionato:** {locale_name} | **Priority Score:** {priority_score}")
             create_events_timeline_chart(selected_locale_data)
 
-            # ----------------- Bottone Deep Research -----------------
-            button_key = f"deep_search_{selected_idx}"
-            research_file = "./data/deep/sonar.csv"
+            # ----------------- Bottoni affiancati -----------------
+            col_b1, col_b2 = st.columns(2)
 
-            if st.button(f"🔍 Deep Research: {locale_name}", key=button_key):
-
-                # Leggi il file CSV se esiste
-                if os.path.exists(research_file):
-                    try:
-                        df_research = pd.read_csv(research_file)
-                    except Exception as e:
-                        st.error(f"Impossibile leggere {research_file}: {e}")
-                        df_research = pd.DataFrame(columns=['data_deep_search', 'nome_locale', 'descrizione'])
-                else:
-                    df_research = pd.DataFrame(columns=['data_deep_search', 'nome_locale', 'descrizione'])
-
-                # Controlla se il locale è già presente
-                existing_entry = df_research[df_research['nome_locale'] == locale_name]
-
-                if not existing_entry.empty:
-                    descrizione = existing_entry.iloc[0]['descrizione']
-                    st.info(f"✅ Il locale **{locale_name}** è già stato ricercato.")
-                    st.markdown(f"**Descrizione trovata:**\n\n{descrizione}")
-                else:
-                    with st.spinner(f"Ricerca in corso su Sonar per {locale_name}..."):
+            with col_b1:
+                button_key = f"deep_search_{selected_idx}"
+                research_file = "./data/deep/sonar.csv"
+                if st.button(f"🔍 Deep Research: {locale_name}", key=button_key):
+                    # Leggi il file CSV se esiste
+                    if os.path.exists(research_file):
                         try:
-                            result = perform_sonar_search(locale_name)
-
-                            st.markdown(f"**Descrizione deep search:**\n\n{result}")
-
+                            df_research = pd.read_csv(research_file)
                         except Exception as e:
-                            st.error(f"Errore durante la ricerca Sonar: {str(e)}")
+                            st.error(f"Impossibile leggere {research_file}: {e}")
+                            df_research = pd.DataFrame(columns=['data_deep_search', 'nome_locale', 'descrizione'])
+                    else:
+                        df_research = pd.DataFrame(columns=['data_deep_search', 'nome_locale', 'descrizione'])
+
+                    # Controlla se il locale è già presente
+                    existing_entry = df_research[df_research['nome_locale'] == locale_name]
+
+                    if not existing_entry.empty:
+                        descrizione = existing_entry.iloc[0]['descrizione']
+                        st.info(f"✅ Il locale **{locale_name}** è già stato ricercato.")
+                        st.markdown(f"**Descrizione trovata:**\n\n{descrizione}")
+                    else:
+                        with st.spinner(f"Ricerca in corso su Sonar per {locale_name}..."):
+                            try:
+                                result = perform_sonar_search(locale_name)
+                                st.markdown(f"**Descrizione deep search:**\n\n{result}")
+                            except Exception as e:
+                                st.error(f"Errore durante la ricerca Sonar: {str(e)}")
+
+            with col_b2:
+                google_url = f"https://www.google.com/search?q={locale_name.replace(' ', '+')}+eventi"
+                if st.button(f"🌐 Google Search: {locale_name}", key=f"google_{selected_idx}"):
+                    webbrowser.open(google_url)
 
         else:
             st.info("👆 Seleziona una riga nella tabella sopra per visualizzare l'andamento degli eventi mensili")
