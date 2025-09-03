@@ -150,7 +150,6 @@ def render():
         # ------------------ Filtro Generi principali ------------------
         if 'GENERE' in df.columns:
             df['GENERE_CAT'] = df['GENERE'].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
-            print(df['GENERE_CAT'].unique())
             selected_genres = st.multiselect(
                 "Generi:",
                 options=df['GENERE_CAT'].unique(),
