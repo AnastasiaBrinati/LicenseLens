@@ -1,12 +1,19 @@
 import streamlit as st
 import pandas as pd
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 import glob
 from datetime import datetime
+from utils.sonar import perform_sonar_search
+#from deep_search import display_events_table
 
+gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
+GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.strip()])
+
+@st.cache_data
 def load_locali_data():
     """Carica tutti i file CSV locali_* dalla cartella DATA_DIR e aggiunge la colonna 'citta' dal nome file"""
     pattern = f"./data/locali_*.csv"
@@ -161,11 +168,8 @@ def render():
 
     with col1:
         # ------------------ Filtro Generi principali prefissati ------------------
-        MAIN_GENRES = ["Bar", "Albergo/Hotel", "All'aperto", "Circolo", "Discoteca",
-                       "Ristorante"]
-
         if 'GENERE' in df.columns:
-            df['GENERE_CAT'] = df['GENERE'].apply(lambda x: x if x in MAIN_GENRES else 'Altro')
+            df['GENERE_CAT'] = df['GENERE'].apply(lambda x: x if x in GENERI_PRIORITARI else 'Altro')
 
             selected_genres = st.multiselect(
                 "Generi:",
@@ -232,6 +236,23 @@ def render():
             st.info(f"📍 **Locale selezionato:** {locale_name} | **Priority Score:** {priority_score}")
 
             create_events_timeline_chart(selected_locale_data)
+
+            # ----------------- Bottone Deep Research -----------------
+
+            if st.button(f"🔍 Deep Research: {locale_name}"):
+                with st.spinner(f"Ricerca in corso su Sonar per {locale_name}..."):
+                    try:
+                        df_results = perform_sonar_search(locale_name)
+
+                        if df_results.empty:
+                            st.info(f"Nessun evento trovato per {locale_name}")
+                        else:
+                            st.success(f"Trovati {len(df_results)} eventi per {locale_name}")
+                            # Mostra tabella interattiva come in deep_search.py
+                            #display_events_table(df_results, locale_name)
+
+                    except Exception as e:
+                        st.error(f"Errore durante la ricerca Sonar: {str(e)}")
 
         else:
             st.info("👆 Seleziona una riga nella tabella sopra per visualizzare l'andamento degli eventi mensili")

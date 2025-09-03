@@ -1,11 +1,7 @@
-# tabs/map_choropleth_static.py
 import streamlit as st
-import pandas as pd
-import folium, os, json
-from folium import Element
+import os
 from streamlit_folium import st_folium
 from dotenv import load_dotenv
-import branca
 from utils.utilities import fmt, load_csv_city, list_available_cities, load_geojson
 
 # ===================== Config =====================
@@ -17,7 +13,20 @@ GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.s
 
 # ===================== Caching =====================
 def build_map(df_filtered, geojson_layer, center_lat, center_lon):
+    """
+    Costruisce una mappa Folium centrata su center_lat, center_lon.
+    Mostra:
+      - Poligoni H3 colorati secondo 'color' dal GeoJSON
+      - Punti dei locali filtrati con colore basato su priority_score
+    """
+    import folium
+    import branca
+    from folium import Element
+
+    # Crea mappa base
     m = folium.Map(location=[center_lat, center_lon], zoom_start=8, control_scale=True)
+
+    # Layer base
     geojson_base = load_geojson()
     if geojson_base:
         folium.GeoJson(
@@ -27,25 +36,15 @@ def build_map(df_filtered, geojson_layer, center_lat, center_lon):
                 "fillColor": "none",
                 "color": "#333333",
                 "weight": 2,
-                "fillOpacity": 0}
+                "fillOpacity": 0
+            }
         ).add_to(m)
 
-    # Colormap
-    ps_vals = [f.get("properties", {}).get("ps_mean") for f in geojson_layer["features"] if f.get("properties", {}).get("ps_mean") is not None]
-    vmin, vmax = (0,1) if not ps_vals else (min(ps_vals), max(ps_vals))
-    cmap = branca.colormap.linear.YlOrRd_09.scale(vmin, vmax)
-    Element(cmap._repr_html_().replace("position: absolute;", "position: absolute; bottom: 10px; left: 10px;")).add_to(m)
-
-    # Poligoni H3
+    # Poligoni H3 con colore dal GeoJSON
     for feat in geojson_layer["features"]:
         props = feat["properties"]
-        coords = feat["geometry"]["coordinates"]
-        # Usa dati filtrati per colore dinamico
-        if df_filtered is not None and not df_filtered.empty:
-            ps = props.get("ps_mean", None)
-            color = "#e0e0e0" if ps is None else cmap(float(ps))
-        else:
-            color = "#e0e0e0"
+        color = props.get("color", "#e0e0e0")
+        coords = [(lat, lon) for lat, lon in feat["geometry"]["coordinates"][0]]
 
         tooltip_html = (
             f"<b>Cella H3</b><br>"
@@ -53,6 +52,7 @@ def build_map(df_filtered, geojson_layer, center_lat, center_lon):
             f"Locali: {props.get('locali_count',0)}<br>"
             f"Eventi Totali: {fmt(props.get('events_sum'),0)}"
         )
+
         folium.Polygon(
             locations=coords,
             color="#333333",
@@ -63,29 +63,45 @@ def build_map(df_filtered, geojson_layer, center_lat, center_lon):
             tooltip=tooltip_html
         ).add_to(m)
 
-    # Punti filtrati
-    for _, r in df_filtered.iterrows():
-        lat, lon = r["LATITUDINE"], r["LONGITUDINE"]
-        ps_locale = r.get("priority_score", None)
-        color = cmap(ps_locale) if ps_locale is not None else "#cccccc"
-        folium.CircleMarker(
-            [lat, lon],
-            radius=4,
-            color="#333333",
-            weight=1,
-            fill=True,
-            fill_color=color,
-            fill_opacity=0.8,
-            popup=folium.Popup(
-                f"<b>{r.get('DES_LOCALE','Senza nome')}</b><br>"
-                f"Città: {r['CITY']}<br>"
-                f"Genere: {r.get('GENERE_DISPLAY','n.d.')}<br>"
-                f"Priority Score: {fmt(ps_locale)}<br>"
-                f"Eventi totali: {fmt(r.get('events_total'),0)}<br>", max_width=320
-            )
-        ).add_to(m)
+    # Colormap per punti locali basata su priority_score
+    ps_vals = df_filtered["priority_score"].dropna()
+    if not ps_vals.empty:
+        vmin, vmax = ps_vals.min(), ps_vals.max()
+        cmap = branca.colormap.linear.YlOrRd_09.scale(vmin, vmax)
+    else:
+        cmap = lambda x: "#1f77b4"
+
+    # Punti dei locali filtrati
+    if df_filtered is not None and not df_filtered.empty:
+        for _, r in df_filtered.iterrows():
+            lat, lon = r["LATITUDINE"], r["LONGITUDINE"]
+            ps_locale = r.get("priority_score", None)
+            color = cmap(float(ps_locale)) if ps_locale is not None else "#cccccc"
+
+            folium.CircleMarker(
+                [lat, lon],
+                radius=4,
+                color="#333333",
+                weight=1,
+                fill=True,
+                fill_color=color,
+                fill_opacity=0.8,
+                popup=folium.Popup(
+                    f"<b>{r.get('DES_LOCALE','Senza nome')}</b><br>"
+                    f"Città: {r['CITY']}<br>"
+                    f"Genere: {r.get('GENERE_DISPLAY','n.d.')}<br>"
+                    f"Priority Score: {fmt(ps_locale)}<br>"
+                    f"Eventi totali: {fmt(r.get('events_total'),0)}<br>", max_width=320
+                )
+            ).add_to(m)
+
+    # Aggiungi legenda colormap
+    if hasattr(cmap, "caption"):
+        Element(cmap._repr_html_().replace("position: absolute;", "position: absolute; bottom: 10px; left: 10px;")).add_to(m)
 
     return m
+
+
 
 def render():
     st.header("Zone con priorità di attenzione")

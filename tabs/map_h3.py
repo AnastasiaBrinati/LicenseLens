@@ -15,8 +15,16 @@ GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.s
 ROMA_LAT, ROMA_LON = os.getenv("ROMA_LAT", 0), os.getenv("ROMA_LON", 0)
 
 # ===================== Map builder =====================
+# ===================== Map builder =====================
 def build_map(df_filtered, center_lat, center_lon):
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=8, control_scale=False, prefer_canvas=True)
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=8,
+        control_scale=False,
+        prefer_canvas=True
+    )
+
+    # Layer base
     geojson_base = load_geojson()
     if geojson_base:
         folium.GeoJson(
@@ -30,26 +38,28 @@ def build_map(df_filtered, center_lat, center_lon):
             }
         ).add_to(m)
 
+    # Layer H3: colore dal GeoJSON
     geojson_layer = load_geojson(H3_LAYER)
-    folium.GeoJson(
-        geojson_layer,
-        name="Fasce H3",
-        style_function=lambda feature: {
-            "color": feature["properties"]["color"],
-            "weight": 2,
-            "fill": True,
-            "fillColor": feature["properties"]["color"],
-            "fillOpacity": 0.25,
-        },
-        tooltip=folium.GeoJsonTooltip(
-            fields=["fascia", "count", "mean_events"],
-            aliases=["Fascia", "Locali", "Eventi medi"],
-            sticky=False
-        ),
-    ).add_to(m)
+    if geojson_layer:
+        folium.GeoJson(
+            geojson_layer,
+            name="Fasce H3",
+            style_function=lambda feature: {
+                "color": feature["properties"].get("color", "#e0e0e0"),
+                "weight": 2,
+                "fill": True,
+                "fillColor": feature["properties"].get("color", "#e0e0e0"),
+                "fillOpacity": 0.4,
+            },
+            tooltip=folium.GeoJsonTooltip(
+                fields=["count", "mean_events"],
+                aliases=["Locali", "Media Eventi"],
+                sticky=False
+            ),
+        ).add_to(m)
 
     # Punti filtrati
-    if not df_filtered.empty:
+    if df_filtered is not None and not df_filtered.empty:
         for _, r in df_filtered.iterrows():
             lat, lon = float(r["LATITUDINE"]), float(r["LONGITUDINE"])
             fascia = int(r.get("fascia_cell", 3))
@@ -71,7 +81,9 @@ def build_map(df_filtered, center_lat, center_lon):
                 fill_opacity=0.8,
                 popup=popup_html
             ).add_to(m)
+
     return m
+
 
 # ===================== Render =====================
 def render():
