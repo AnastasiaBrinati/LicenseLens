@@ -13,18 +13,10 @@ GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.s
 
 # ===================== Caching =====================
 def build_map(df_filtered, geojson_layer, center_lat, center_lon):
-    """
-    Costruisce una mappa Folium centrata su center_lat, center_lon.
-    Mostra:
-      - Poligoni H3 colorati secondo 'color' dal GeoJSON
-      - Punti dei locali filtrati con colore basato su priority_score
-    """
     import folium
     import branca
-    from folium import Element
 
-    # Crea mappa base
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=8, control_scale=True)
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=12, control_scale=True)
 
     # Layer base
     geojson_base = load_geojson()
@@ -40,7 +32,27 @@ def build_map(df_filtered, geojson_layer, center_lat, center_lon):
             }
         ).add_to(m)
 
-    # Poligoni H3 con colore dal GeoJSON
+    # --- Estrai i valori ps_mean dalle celle per definire la colormap ---
+    ps_vals = []
+    for feat in geojson_layer["features"]:
+        v = feat["properties"].get("ps_mean", None)
+        if v is not None:
+            try:
+                ps_vals.append(float(v))
+            except:
+                pass
+
+    cmap_cells = None
+    if ps_vals:
+        vmin, vmax = min(ps_vals), max(ps_vals)
+        if vmin == vmax:
+            vmax = vmin + 1e-6
+        cmap_cells = branca.colormap.linear.YlOrRd_09.scale(vmin, vmax)
+        cmap_cells.caption = "Priority Score medio (celle H3)"
+        # 👉 Aggiunge la legenda in modo nativo (affidabile nell'iframe)
+        cmap_cells.add_to(m)
+
+    # --- Disegna poligoni H3 ---
     for feat in geojson_layer["features"]:
         props = feat["properties"]
         color = props.get("color", "#e0e0e0")
@@ -48,7 +60,7 @@ def build_map(df_filtered, geojson_layer, center_lat, center_lon):
 
         tooltip_html = (
             f"<b>Cella H3</b><br>"
-            f"Priority Score: {fmt(props.get('ps_mean'))}<br>"
+            f"Priority Score medio: {fmt(props.get('ps_mean'))}<br>"
             f"Locali: {props.get('locali_count',0)}<br>"
             f"Eventi Totali: {fmt(props.get('events_sum'),0)}"
         )
@@ -59,24 +71,26 @@ def build_map(df_filtered, geojson_layer, center_lat, center_lon):
             weight=1,
             fill=True,
             fill_color=color,
-            fill_opacity=0.5 if props.get("ps_mean") is not None else 0.25,
+            fill_opacity=0.4 if props.get("ps_mean") is not None else 0.25,
             tooltip=tooltip_html
         ).add_to(m)
 
-    # Colormap per punti locali basata su priority_score
-    ps_vals = df_filtered["priority_score"].dropna()
-    if not ps_vals.empty:
-        vmin, vmax = ps_vals.min(), ps_vals.max()
-        cmap = branca.colormap.linear.YlOrRd_09.scale(vmin, vmax)
-    else:
-        cmap = lambda x: "#1f77b4"
-
-    # Punti dei locali filtrati
+    # --- Punti locali (senza legenda separata) ---
     if df_filtered is not None and not df_filtered.empty:
+        # se vuoi, puoi mantenere lo stesso schema colori dei poligoni (non è obbligatorio)
+        ps_vals_loc = df_filtered["priority_score"].dropna()
+        if not ps_vals_loc.empty:
+            vmin_p, vmax_p = ps_vals_loc.min(), ps_vals_loc.max()
+            if vmin_p == vmax_p:
+                vmax_p = vmin_p + 1e-6
+            cmap_points = branca.colormap.linear.YlOrRd_09.scale(vmin_p, vmax_p)
+        else:
+            cmap_points = None
+
         for _, r in df_filtered.iterrows():
             lat, lon = r["LATITUDINE"], r["LONGITUDINE"]
             ps_locale = r.get("priority_score", None)
-            color = cmap(float(ps_locale)) if ps_locale is not None else "#cccccc"
+            color = cmap_points(float(ps_locale)) if (ps_locale is not None and cmap_points) else "#cccccc"
 
             folium.CircleMarker(
                 [lat, lon],
@@ -91,13 +105,10 @@ def build_map(df_filtered, geojson_layer, center_lat, center_lon):
                     f"Città: {r['CITY']}<br>"
                     f"Genere: {r.get('GENERE_DISPLAY','n.d.')}<br>"
                     f"Priority Score: {fmt(ps_locale)}<br>"
-                    f"Eventi totali: {fmt(r.get('events_total'),0)}<br>", max_width=320
+                    f"Eventi totali: {fmt(r.get('events_total'),0)}<br>",
+                    max_width=320
                 )
             ).add_to(m)
-
-    # Aggiungi legenda colormap
-    if hasattr(cmap, "caption"):
-        Element(cmap._repr_html_().replace("position: absolute;", "position: absolute; bottom: 10px; left: 10px;")).add_to(m)
 
     return m
 
@@ -107,7 +118,7 @@ def render():
     st.header("Zone con priorità di attenzione")
     st.info(
         "⚠️ **Cos'è il Priority Score?**\n"
-        "Il Priority Score aiuta a identificare le aree potenzialmente anomale rispetto agli eventi dichiarati dai locali."
+        "Il Priority Score aiuta a identificare i locali e le aree potenzialmente anomale rispetto agli eventi dichiarati."
     )
 
     available_cities = list_available_cities()
