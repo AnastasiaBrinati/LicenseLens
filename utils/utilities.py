@@ -53,6 +53,10 @@ def load_csv_city(city: str) -> pd.DataFrame:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
+    df.dropna(subset=["LATITUDINE", "LONGITUDINE"]).query(
+        "LATITUDINE!=0 & LONGITUDINE!=0"
+    )
+
     for c in ["events_total", "pct_last6m", "peer_comp", "priority_score"]:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")

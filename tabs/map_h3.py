@@ -99,10 +99,7 @@ def render():
     needs_update = st.session_state.last_filters != filters_key
 
     if needs_update:
-        df = load_csv_city(selected_city).dropna(subset=["LATITUDINE", "LONGITUDINE"]).query(
-            "LATITUDINE!=0 & LONGITUDINE!=0"
-        ).copy()
-        df_filtered = df.copy()
+        df_filtered = load_csv_city(selected_city).copy()
         df_filtered["GENERE_NORM"] = df_filtered["GENERE"].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
         if selected_genres:
             df_filtered = df_filtered[df_filtered["GENERE_NORM"].isin(selected_genres)]
