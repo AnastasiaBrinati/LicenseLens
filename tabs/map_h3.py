@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import folium, os, json
+import folium, os
+import plotly.express as px
 from branca.element import Template, MacroElement
 from streamlit_folium import st_folium
 from utils.utilities import fmt, load_csv_city, list_available_cities, load_geojson
@@ -51,11 +51,6 @@ def build_map(df_filtered, center_lat, center_lon):
                 "fillColor": feature["properties"].get("color", "#e0e0e0"),
                 "fillOpacity": 0.4,
             },
-            tooltip=folium.GeoJsonTooltip(
-                fields=["count", "mean_events"],
-                aliases=["Locali", "Media Eventi"],
-                sticky=False
-            ),
         ).add_to(m)
 
     # Punti filtrati
@@ -94,11 +89,12 @@ def build_map(df_filtered, center_lat, center_lon):
         border-radius:5px;
         padding: 10px;
         font-size:14px;
-        ">
-        <b>Legenda Fasce Attività</b><br>
-        <i class="fa fa-circle" style="color:#d73027"></i> Alta attività<br>
-        <i class="fa fa-circle" style="color:#fc8d59"></i> Media attività<br>
-        <i class="fa fa-circle" style="color:#4575b4"></i> Bassa attività
+        color: black;
+    ">
+    <b>Legenda Fasce Attività</b><br>
+    <i class="fa fa-circle" style="color:#d73027"></i> Alta attività<br>
+    <i class="fa fa-circle" style="color:#fc8d59"></i> Media attività<br>
+    <i class="fa fa-circle" style="color:#4575b4"></i> Bassa attività
     </div>
     {% endmacro %}
     """
@@ -166,13 +162,40 @@ def render():
                 st.metric("Totale Locali", f"{total_locali:,}")
                 st.metric("Totale Eventi", f"{int(total_eventi):,}")
 
-                for fascia in sorted(df_filtered["fascia_cell"].unique()):
-                    fascia_data = df_filtered[df_filtered["fascia_cell"] == fascia]
-                    count = len(fascia_data)
-                    pct = (count / total_locali * 100) if total_locali > 0 else 0
-                    labels = {1: "🔴 Alta attività", 2: "🟡 Media attività", 3: "🔵 Bassa attività"}
-                    st.metric(
-                        labels.get(int(fascia), f"Fascia {fascia}"),
-                        f"{count:,} ({pct:.1f}%)"
-                    )
+                # --- Subheader ---
+                st.subheader("Distribuzione locali per fascia")
+
+                # --- Dati per il pie chart ---
+                fasce_labels = {1: "Alta attività", 2: "Media attività", 3: "Bassa attività"}
+                fasce_colors = {1: os.getenv("FASCIA_COLOR_1"), 2: os.getenv("FASCIA_COLOR_2"), 3: os.getenv("FASCIA_COLOR_3")}
+
+                counts = df_filtered["fascia_cell"].value_counts().to_dict()
+                # Assicurati che ci siano tutte le fasce anche se 0
+                for fascia in [1, 2, 3]:
+                    counts.setdefault(fascia, 0)
+
+                pie_data = pd.DataFrame({
+                    "Fascia": [fasce_labels[f] for f in counts.keys()],
+                    "Locali": [counts[f] for f in counts.keys()]
+                })
+
+                # --- Pie chart ---
+                fig = px.pie(
+                    pie_data,
+                    names="Fascia",
+                    values="Locali",
+                    color="Fascia",
+                    color_discrete_map={fasce_labels[k]: v for k, v in fasce_colors.items()},
+                )
+                fig.update_traces(
+                    hovertemplate="<b>%{label}</b><br>Locali: %{value}<br><extra></extra>"
+                )
+                fig.update_layout(
+                    showlegend=False,
+                    margin=dict(l=20, r=20, t=10, b=10),  # più margine per le label
+                    height=320  # altezza maggiore
+                )
+
+                st.plotly_chart(fig, use_container_width=True)
+
 
