@@ -58,21 +58,13 @@ def build_map(df_filtered, geojson_layer, center_lat, center_lon):
         color = props.get("color", "#e0e0e0")
         coords = [(lat, lon) for lat, lon in feat["geometry"]["coordinates"][0]]
 
-        tooltip_html = (
-            f"<b>Cella H3</b><br>"
-            f"Priority Score medio: {fmt(props.get('ps_mean'))}<br>"
-            f"Locali: {props.get('locali_count',0)}<br>"
-            f"Eventi Totali: {fmt(props.get('events_sum'),0)}"
-        )
-
         folium.Polygon(
             locations=coords,
             color="#333333",
             weight=1,
             fill=True,
             fill_color=color,
-            fill_opacity=0.4 if props.get("ps_mean") is not None else 0.25,
-            tooltip=tooltip_html
+            fill_opacity=0.4 if props.get("ps_mean") is not None else 0.25
         ).add_to(m)
 
     # --- Punti locali (senza legenda separata) ---
