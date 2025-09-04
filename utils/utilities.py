@@ -4,6 +4,9 @@ import streamlit as st
 import pandas as pd
 from dotenv import load_dotenv
 import math
+from datetime import datetime
+from pathlib import Path
+import glob
 
 load_dotenv()
 DATA_DIR = os.getenv("DATA_DIR", "./data")
@@ -31,7 +34,6 @@ def load_geojson(path: Optional[str] = None) -> Optional[dict]:
 def list_available_cities() -> list:
     all_csv = [f for f in os.listdir(DATA_DIR) if f.startswith("locali_") and f.endswith(".csv")]
     return sorted([f.replace("locali_", "").replace(".csv", "") for f in all_csv])
-
 
 @st.cache_data
 def load_csv_city(city: str) -> pd.DataFrame:
@@ -62,6 +64,48 @@ def load_csv_city(city: str) -> pd.DataFrame:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
     return df
+
+@st.cache_data
+def load_locali_data():
+    """Carica tutti i file CSV locali_* dalla cartella DATA_DIR e aggiunge la colonna 'citta' dal nome file"""
+    pattern = f"./data/locali_*.csv"
+    csv_files = glob.glob(pattern)
+
+    if not csv_files:
+        st.error(f"Nessun file trovato con pattern {pattern}")
+        return pd.DataFrame()
+
+    dataframes = []
+    for file in csv_files:
+        try:
+            df = pd.read_csv(file)
+            city_name = Path(file).stem.replace("locali_", "")
+            df['citta'] = city_name
+            dataframes.append(df)
+        except Exception as e:
+            st.warning(f"Errore nel caricamento di {file}: {e}")
+
+    if not dataframes:
+        return pd.DataFrame()
+
+    combined_df = pd.concat(dataframes, ignore_index=True)
+    return combined_df
+
+@st.cache_data
+def get_month_columns(df):
+    """Identifica le colonne dei mesi nel formato MM/YYYY"""
+    month_cols = []
+    for col in df.columns:
+        if isinstance(col, str) and '/' in col:
+            try:
+                month, year = col.split('/')
+                if len(month) == 2 and len(year) == 4:
+                    datetime.strptime(col, '%m/%Y')
+                    month_cols.append(col)
+            except (ValueError, TypeError):
+                continue
+    month_cols.sort(key=lambda x: datetime.strptime(x, '%m/%Y'))
+    return month_cols
 
 # ===================== Utility =====================
 def fmt(x, dec=3, nd="n.d."):
