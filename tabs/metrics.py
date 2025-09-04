@@ -1,12 +1,8 @@
 import streamlit as st
 import pandas as pd
 import os
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from pathlib import Path
-import glob
-from datetime import datetime
+import plotly.express as px
+from utils.utilities import get_month_columns, load_locali_data
 import webbrowser
 from utils.sonar import perform_sonar_search
 from dotenv import load_dotenv
@@ -15,104 +11,48 @@ load_dotenv()
 gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
 GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.strip()])
 
-
-@st.cache_data
-def load_locali_data():
-    """Carica tutti i file CSV locali_* dalla cartella DATA_DIR e aggiunge la colonna 'citta' dal nome file"""
-    pattern = f"./data/locali_*.csv"
-    csv_files = glob.glob(pattern)
-
-    if not csv_files:
-        st.error(f"Nessun file trovato con pattern {pattern}")
-        return pd.DataFrame()
-
-    dataframes = []
-    for file in csv_files:
-        try:
-            df = pd.read_csv(file)
-            city_name = Path(file).stem.replace("locali_", "")
-            df['citta'] = city_name
-            dataframes.append(df)
-        except Exception as e:
-            st.warning(f"Errore nel caricamento di {file}: {e}")
-
-    if not dataframes:
-        return pd.DataFrame()
-
-    combined_df = pd.concat(dataframes, ignore_index=True)
-    return combined_df
-
-
-def get_month_columns(df):
-    """Identifica le colonne dei mesi nel formato MM/YYYY"""
-    month_cols = []
-    for col in df.columns:
-        if isinstance(col, str) and '/' in col:
-            try:
-                month, year = col.split('/')
-                if len(month) == 2 and len(year) == 4:
-                    datetime.strptime(col, '%m/%Y')
-                    month_cols.append(col)
-            except (ValueError, TypeError):
-                continue
-    month_cols.sort(key=lambda x: datetime.strptime(x, '%m/%Y'))
-    return month_cols
-
-
 def create_events_timeline_chart(df_row):
     month_columns = get_month_columns(df_row)
-    if df_row.empty or not month_columns:
-        st.info("Nessun dato disponibile per il grafico timeline")
-        return
-
     row_data = df_row.iloc[0]
-    months, events = [], []
 
+    months, events = [], []
     for month_col in month_columns:
-        if month_col in row_data:
-            months.append(month_col)
-            value = row_data[month_col]
-            if pd.isna(value):
-                events.append(0)
-            else:
-                try:
-                    events.append(float(value))
-                except (ValueError, TypeError):
-                    events.append(0)
+        months.append(month_col)
+        value = row_data.get(month_col, 0)
+        events.append(float(value) if pd.notna(value) else 0)
 
     if not months:
         st.info("Nessun dato mensile trovato")
         return
 
-    fig, ax = plt.subplots(figsize=(12, 6))
-    sns.lineplot(x=range(len(months)), y=events, marker='o', linewidth=2,
-                 markersize=8, ax=ax, color='#1f77b4')
+    df_plot = pd.DataFrame({"Mese": months, "Eventi": events})
 
-    ax.set_xticks(range(len(months)))
-    ax.set_xticklabels(months, rotation=45, ha='right')
-    ax.set_xlabel('Mese', fontsize=12)
-    ax.set_ylabel('Numero di Eventi', fontsize=12)
+    fig = px.line(
+        df_plot,
+        x="Mese",
+        y="Eventi",
+        markers=True,
+        text="Eventi"
+    )
 
-    locale_name = row_data.get('DES_LOCALE', 'Locale Selezionato')
-    ax.set_title(f'Andamento Eventi Mensili - {locale_name}', fontsize=14, fontweight='bold')
-    ax.grid(True, alpha=0.3)
+    fig.update_traces(
+        line=dict(color="#1f77b4", width=2),
+        marker=dict(size=8),
+        textposition="top center"
+    )
 
-    for i, (month, event_count) in enumerate(zip(months, events)):
-        if event_count > 0:
-            ax.annotate(f'{int(event_count)}',
-                        (i, event_count),
-                        textcoords="offset points",
-                        xytext=(0, 10),
-                        ha='center',
-                        fontsize=9,
-                        alpha=0.8)
+    fig.update_layout(
+        xaxis_title="Mese",
+        yaxis_title="Numero di Eventi",
+        margin=dict(l=40, r=40, t=40, b=40),
+        height=400,
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font_color='white' if st.get_option("theme.base") == "dark" else "black"
+    )
 
-    if max(events) > 0:
-        ax.set_ylim(0, max(events) * 1.1)
+    st.plotly_chart(fig, use_container_width=True)
 
-    plt.tight_layout()
-    st.pyplot(fig)
-    plt.close()
 
 
 def render():
@@ -270,27 +210,43 @@ def render():
             st.metric("Priority Score Max", f"{max_score:.2f}")
             st.metric("Priority Score Min", f"{min_score:.2f}")
 
+        import plotly.express as px
+
         st.subheader("Distribuzione Generi")
+
         if 'GENERE' in df_top.columns:
             genre_counts_top = df_top['GENERE'].value_counts()
-            fig_donut, ax_donut = plt.subplots(figsize=(6, 6))
-            sizes = genre_counts_top.values
-            labels = genre_counts_top.index
-            colors = plt.cm.Set3(np.linspace(0, 1, len(labels)))
+            pie_data = pd.DataFrame({
+                "Genere": genre_counts_top.index,
+                "Locali": genre_counts_top.values
+            })
 
-            wedges, texts, autotexts = ax_donut.pie(
-                sizes,
-                labels=labels,
-                autopct='%1.1f%%',
-                startangle=90,
-                pctdistance=0.85,
-                colors=colors
+            colors = px.colors.qualitative.Set3
+
+            fig = px.pie(
+                pie_data,
+                names="Genere",
+                values="Locali",
+                color="Genere",
+                color_discrete_sequence=colors
             )
 
-            centre_circle = plt.Circle((0, 0), 0.70, fc='white')
-            fig_donut.gca().add_artist(centre_circle)
-            plt.tight_layout()
-            st.pyplot(fig_donut)
-            plt.close()
+            # Mostra solo percentuale sugli spicchi, hover con dettagli completi
+            fig.update_traces(
+                textinfo='percent',
+                hovertemplate="<b>%{label}</b><br>Locali: %{value}<br>Percentuale: %{percent}<extra></extra>"
+            )
+
+            fig.update_layout(
+                showlegend=True,
+                margin=dict(l=10, r=10, t=10, b=10),
+                height=320,
+                legend_itemclick=False,  # disabilita il click singolo sulla legenda
+                legend_itemdoubleclick=False,  # disabilita doppio click
+                paper_bgcolor='rgba(0,0,0,0)',  # trasparente per dark mode
+                plot_bgcolor='rgba(0,0,0,0)'
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Colonna 'GENERE' non disponibile")
