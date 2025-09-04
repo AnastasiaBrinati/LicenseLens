@@ -1,12 +1,8 @@
 import streamlit as st
 import pandas as pd
 import os
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from pathlib import Path
-import glob
-from datetime import datetime
+import plotly.express as px
+from utils.utilities import get_month_columns, load_locali_data
 import webbrowser
 from utils.sonar import perform_sonar_search
 from dotenv import load_dotenv
@@ -14,51 +10,6 @@ from dotenv import load_dotenv
 load_dotenv()
 gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
 GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.strip()])
-
-@st.cache_data
-def load_locali_data():
-    """Carica tutti i file CSV locali_* dalla cartella DATA_DIR e aggiunge la colonna 'citta' dal nome file"""
-    pattern = f"./data/locali_*.csv"
-    csv_files = glob.glob(pattern)
-
-    if not csv_files:
-        st.error(f"Nessun file trovato con pattern {pattern}")
-        return pd.DataFrame()
-
-    dataframes = []
-    for file in csv_files:
-        try:
-            df = pd.read_csv(file)
-            city_name = Path(file).stem.replace("locali_", "")
-            df['citta'] = city_name
-            dataframes.append(df)
-        except Exception as e:
-            st.warning(f"Errore nel caricamento di {file}: {e}")
-
-    if not dataframes:
-        return pd.DataFrame()
-
-    combined_df = pd.concat(dataframes, ignore_index=True)
-    return combined_df
-
-
-def get_month_columns(df):
-    """Identifica le colonne dei mesi nel formato MM/YYYY"""
-    month_cols = []
-    for col in df.columns:
-        if isinstance(col, str) and '/' in col:
-            try:
-                month, year = col.split('/')
-                if len(month) == 2 and len(year) == 4:
-                    datetime.strptime(col, '%m/%Y')
-                    month_cols.append(col)
-            except (ValueError, TypeError):
-                continue
-    month_cols.sort(key=lambda x: datetime.strptime(x, '%m/%Y'))
-    return month_cols
-
-
-import plotly.express as px
 
 def create_events_timeline_chart(df_row):
     month_columns = get_month_columns(df_row)
