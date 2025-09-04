@@ -56,7 +56,18 @@ def create_events_timeline_chart(df_row):
 
 
 def render():
-    st.header("Top priority venues")
+    st.header("Locali ad alta priorità")
+    st.info(
+        """
+        Il **livello di priorità** misura quanto un locale merita attenzione in base ai dati disponibili.  
+        Viene calcolato combinando diversi fattori, tra cui:  
+        - l’andamento degli eventi dichiarati negli ultimi mesi,  
+        - il confronto con locali simili nella stessa area,  
+        - e altre caratteristiche storiche.  
+
+        Un valore più alto indica una probabilità maggiore che il locale presenti **comportamenti anomali o irregolarità**.
+        """
+    )
 
     with st.spinner("Caricamento dati..."):
         df = load_locali_data()
@@ -199,20 +210,11 @@ def render():
 
     # ------------------ Colonna laterale ------------------
     with col2:
-        st.subheader("📊 Statistiche")
-
-        if 'priority_score' in df_top.columns:
-            avg_score = df_top['priority_score'].mean()
-            max_score = df_top['priority_score'].max()
-            min_score = df_top['priority_score'].min()
-
-            st.metric("Priority Score Medio", f"{avg_score:.2f}")
-            st.metric("Priority Score Max", f"{max_score:.2f}")
-            st.metric("Priority Score Min", f"{min_score:.2f}")
 
         import plotly.express as px
-
-        st.subheader("Distribuzione Generi")
+        st.subheader("\n")
+        st.subheader("\n")
+        st.subheader("Quota di locali per genere")
 
         if 'GENERE' in df_top.columns:
             genre_counts_top = df_top['GENERE'].value_counts()

@@ -109,8 +109,12 @@ def build_map(df_filtered, center_lat, center_lon):
 def render():
     st.header("Zone per livello di attività")
     st.info(
-        "⚠️ **Cos'è il livello di attività?**\n"
-        "Classificazione automatica delle zone basata sulla media di eventi registrati negli ultimi 12 mesi."
+        """
+        Le aree della città sono state suddivise in **tre livelli di attività** sulla base del numero di eventi dichiarati negli ultimi 12 mesi. 
+
+        - I **punti** rappresentano i singoli locali.  
+        - I **poligoni colorati (celle)** suddividono la mappa in aree che vengono classificate in tre diversi livelli di attività: bassa, media e alta. 
+        """
     )
 
     # --- Session state ---
@@ -163,7 +167,7 @@ def render():
                 st.metric("Totale Eventi", f"{int(total_eventi):,}")
 
                 # --- Subheader ---
-                st.subheader("Distribuzione locali per fascia")
+                st.subheader("Quota locali per livello di attività")
 
                 # --- Dati per il pie chart ---
                 fasce_labels = {1: "Alta attività", 2: "Media attività", 3: "Bassa attività"}

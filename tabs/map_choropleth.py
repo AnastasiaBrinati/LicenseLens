@@ -180,10 +180,12 @@ def build_map(df_filtered, geojson_layer, center_lat, center_lon):
 # ===================== Render =====================
 def render():
     st.header("Zone con priorità di attenzione")
-    st.info(
-        "⚠️ **Cos'è il Priority Score?**\n"
-        "Il Priority Score aiuta a identificare i locali e le aree potenzialmente anomale rispetto agli eventi dichiarati."
-    )
+    st.info("""
+    Questa mappa evidenzia i locali e le aree urbane che **meritano maggiore attenzione nei controlli sugli eventi dichiarati**.
+
+    - I **punti** rappresentano i singoli locali: il colore indica il livello di priorità.  
+    - I **poligoni colorati (celle)** mostrano la priorità media della zona.  
+    """)
 
     available_cities = list_available_cities()
     available_genres = sorted(GENERI_PRIORITARI) + ["Altro"]
@@ -221,14 +223,14 @@ def render():
                 st_folium(folium_map, width=1200, height=800, returned_objects=[])
 
         with col_stats:
-            st.subheader("📊 Statistiche")
+            st.subheader("📊 Statistiche - ultimi 12 mesi")
 
             total_locali = len(df_filtered)
             total_eventi = df_filtered["events_total"].sum() if "events_total" in df_filtered.columns else 0
             st.metric("Totale Locali", f"{total_locali:,}")
             st.metric("Totale Eventi", f"{int(total_eventi):,}")
 
-            st.subheader("Distribuzione locali per priorità")
+            st.subheader("Quota di locali per livello di priorità")
             priority_labels = {1: "Alta priorità", 2: "Media priorità", 3: "Bassa priorità"}
             priority_colors = {1: "#d73027", 2: "#fdae61", 3: "#ffffcc"}
 
