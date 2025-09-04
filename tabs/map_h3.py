@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import folium, os, json
+from branca.element import Template, MacroElement
 from streamlit_folium import st_folium
 from utils.utilities import fmt, load_csv_city, list_available_cities, load_geojson
 from dotenv import load_dotenv
@@ -14,7 +15,6 @@ gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
 GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.strip()])
 ROMA_LAT, ROMA_LON = os.getenv("ROMA_LAT", 0), os.getenv("ROMA_LON", 0)
 
-# ===================== Map builder =====================
 # ===================== Map builder =====================
 def build_map(df_filtered, center_lat, center_lon):
     m = folium.Map(
@@ -38,7 +38,7 @@ def build_map(df_filtered, center_lat, center_lon):
             }
         ).add_to(m)
 
-    # Layer H3: colore dal GeoJSON
+    # Layer H3
     geojson_layer = load_geojson(H3_LAYER)
     if geojson_layer:
         folium.GeoJson(
@@ -81,6 +81,30 @@ def build_map(df_filtered, center_lat, center_lon):
                 fill_opacity=0.8,
                 popup=popup_html
             ).add_to(m)
+
+    # ---------------------- Legenda ----------------------
+    template = """
+    {% macro html(this, kwargs) %}
+    <div style="
+        position: fixed; 
+        bottom: 50px; left: 50px; width: 180px; height: 120px; 
+        z-index:9999; 
+        background-color:white;
+        border:2px solid grey;
+        border-radius:5px;
+        padding: 10px;
+        font-size:14px;
+        ">
+        <b>Legenda Fasce Attività</b><br>
+        <i class="fa fa-circle" style="color:#d73027"></i> Alta attività<br>
+        <i class="fa fa-circle" style="color:#fc8d59"></i> Media attività<br>
+        <i class="fa fa-circle" style="color:#4575b4"></i> Bassa attività
+    </div>
+    {% endmacro %}
+    """
+    macro = MacroElement()
+    macro._template = Template(template)
+    m.get_root().add_child(macro)
 
     return m
 

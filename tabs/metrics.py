@@ -9,9 +9,7 @@ import glob
 from datetime import datetime
 from utils.sonar import perform_sonar_search
 #from deep_search import display_events_table
-from dotenv import load_dotenv
 
-load_dotenv()
 gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
 GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.strip()])
 

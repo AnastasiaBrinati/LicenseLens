@@ -1,6 +1,6 @@
 import streamlit as st
 from streamlit_option_menu import option_menu
-from tabs import metrics, map_h3, map_choropleth, deep_search
+from tabs import metrics, map_h3, map_choropleth
 
 # ===================== Config =====================
 st.set_page_config(page_title="Dashboard Eventi", layout="wide")

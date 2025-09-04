@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
 import branca
-from streamlit import cache_data
+import h3
 import h3
 
 # ===================== Config =====================
