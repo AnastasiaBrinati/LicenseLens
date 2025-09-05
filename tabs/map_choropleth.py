@@ -1,11 +1,12 @@
+import branca
 import streamlit as st
 import pandas as pd
 import os
+import folium
 import plotly.express as px
 from streamlit_folium import st_folium
 from dotenv import load_dotenv
 from utils.utilities import fmt, load_csv_city, list_available_cities, load_geojson
-from branca.element import Template, MacroElement
 
 # ===================== Config =====================
 load_dotenv()
@@ -76,11 +77,14 @@ def add_continuous_legend(m, cmap, position="bottomleft", title="Priorità (bass
 
 
 # ===================== Map builder =====================
-def build_map(df_filtered, geojson_layer, center_lat, center_lon):
-    import folium
-    import branca
+def build_map(df_filtered, center_lat, center_lon, geojson_layer):
 
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=12, control_scale=True)
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=12,
+        control_scale=False,
+        prefer_canvas=True
+    )
 
     # Layer base
     geojson_base = load_geojson()
@@ -96,9 +100,13 @@ def build_map(df_filtered, geojson_layer, center_lat, center_lon):
             }
         ).add_to(m)
 
+    layer = load_geojson(geojson_layer)
+    if layer is None:
+        return
+
     # --- Estrai i valori ps_mean dalle celle per definire la colormap ---
     ps_vals = []
-    for feat in geojson_layer.get("features", []):
+    for feat in layer.get("features", []):
         v = feat.get("properties", {}).get("ps_mean", None)
         if v is not None:
             try:
@@ -106,7 +114,6 @@ def build_map(df_filtered, geojson_layer, center_lat, center_lon):
             except Exception:
                 pass
 
-    cmap_cells = None
     if ps_vals:
         vmin, vmax = min(ps_vals), max(ps_vals)
         if vmin == vmax:
@@ -117,7 +124,7 @@ def build_map(df_filtered, geojson_layer, center_lat, center_lon):
         add_continuous_legend(m, cmap_cells, position="bottomleft", title="Priorità")
 
     # --- Disegna poligoni H3 (usiamo il colore già presente nel GeoJSON) ---
-    for feat in geojson_layer.get("features", []):
+    for feat in layer.get("features", []):
         props = feat.get("properties", {})
         color = props.get("color", "#e0e0e0")
         coords = [(lat, lon) for lat, lon in feat["geometry"]["coordinates"][0]]
@@ -204,11 +211,6 @@ def render():
     df_city["GENERE_DISPLAY"] = df_city["GENERE"].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
     df_filtered = df_city[df_city["GENERE_DISPLAY"].isin(selected_genres)]
 
-    # Carica layer H3
-    geojson_layer = load_geojson(H3_LAYER)
-    if geojson_layer is None:
-        return
-
     # Centro mappa
     center_lat = df_filtered["LATITUDINE"].mean() if not df_filtered.empty else df_city["LATITUDINE"].mean()
     center_lon = df_filtered["LONGITUDINE"].mean() if not df_filtered.empty else df_city["LONGITUDINE"].mean()
@@ -219,7 +221,7 @@ def render():
 
         with col_map:
             with st.spinner("⏳ Caricamento mappa..."):
-                folium_map = build_map(df_filtered, geojson_layer, center_lat, center_lon)
+                folium_map = build_map(df_filtered, center_lat, center_lon, H3_LAYER)
                 st_folium(folium_map, width=1200, height=800, returned_objects=[])
 
         with col_stats:
@@ -259,5 +261,5 @@ def render():
                 st.warning("Colonna 'priority' non trovata nei dati.")
     else:
         with st.spinner("⏳ Caricamento mappa..."):
-            folium_map = build_map(df_filtered, geojson_layer, center_lat, center_lon)
+            folium_map = build_map(df_filtered, center_lat, center_lon, H3_LAYER)
             st_folium(folium_map, width=1200, height=800, returned_objects=[])

@@ -16,7 +16,8 @@ GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.s
 ROMA_LAT, ROMA_LON = os.getenv("ROMA_LAT", 0), os.getenv("ROMA_LON", 0)
 
 # ===================== Map builder =====================
-def build_map(df_filtered, center_lat, center_lon):
+def build_map(df_filtered, center_lat, center_lon, geojson_layer):
+
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=12,
@@ -38,20 +39,21 @@ def build_map(df_filtered, center_lat, center_lon):
             }
         ).add_to(m)
 
-    # Layer H3
-    geojson_layer = load_geojson(H3_LAYER)
-    if geojson_layer:
-        folium.GeoJson(
-            geojson_layer,
-            name="Fasce H3",
-            style_function=lambda feature: {
-                "color": feature["properties"].get("color", "#e0e0e0"),
-                "weight": 2,
-                "fill": True,
-                "fillColor": feature["properties"].get("color", "#e0e0e0"),
-                "fillOpacity": 0.4,
-            },
-        ).add_to(m)
+    layer = load_geojson(geojson_layer)
+    if layer is None:
+        return
+
+    folium.GeoJson(
+        layer,
+        name="Livelli Attività",
+        style_function=lambda feature: {
+             "color": feature["properties"].get("color", "#e0e0e0"),
+             "weight": 2,
+             "fill": True,
+             "fillColor": feature["properties"].get("color", "#e0e0e0"),
+             "fillOpacity": 0.4,
+        },
+    ).add_to(m)
 
     # Punti filtrati
     if df_filtered is not None and not df_filtered.empty:
@@ -155,7 +157,7 @@ def render():
         with col_map:
             # Spinner durante il caricamento della mappa
             with st.spinner("⏳ Caricamento mappa..."):
-                folium_map = build_map(df_filtered, center_lat, center_lon)
+                folium_map = build_map(df_filtered, center_lat, center_lon, H3_LAYER)
                 st_folium(folium_map, width=1200, height=800, returned_objects=[])
 
         with col_stats:
