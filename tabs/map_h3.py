@@ -15,12 +15,13 @@ gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
 GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.strip()])
 ROMA_LAT, ROMA_LON = os.getenv("ROMA_LAT", 0), os.getenv("ROMA_LON", 0)
 
+
 # ===================== Map builder =====================
-def build_map(df_filtered, center_lat, center_lon, geojson_layer):
+def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=12, highlight_locale=None):
 
     m = folium.Map(
         location=[center_lat, center_lon],
-        zoom_start=12,
+        zoom_start=zoom_level,
         control_scale=False,
         prefer_canvas=True
     )
@@ -40,20 +41,18 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer):
         ).add_to(m)
 
     layer = load_geojson(geojson_layer)
-    if layer is None:
-        return
-
-    folium.GeoJson(
-        layer,
-        name="Livelli Attività",
-        style_function=lambda feature: {
-             "color": feature["properties"].get("color", "#e0e0e0"),
-             "weight": 2,
-             "fill": True,
-             "fillColor": feature["properties"].get("color", "#e0e0e0"),
-             "fillOpacity": 0.4,
-        },
-    ).add_to(m)
+    if layer is not None:
+        folium.GeoJson(
+            layer,
+            name="Livelli Attività",
+            style_function=lambda feature: {
+                 "color": feature["properties"].get("color", "#e0e0e0"),
+                 "weight": 2,
+                 "fill": True,
+                 "fillColor": feature["properties"].get("color", "#e0e0e0"),
+                 "fillOpacity": 0.4,
+            },
+        ).add_to(m)
 
     # Punti filtrati
     if df_filtered is not None and not df_filtered.empty:
@@ -66,7 +65,8 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer):
                 f"Genere: {r.get('GENERE', 'Altro')}<br>"
                 f"Eventi totali (12 mesi): {fmt(r.get('events_total',0),0)}<br>"
                 f"Fascia: {fascia}",
-                max_width=320
+                max_width=320,
+                show=(highlight_locale == r.get("DES_LOCALE"))  # 👈 popup aperto se locale selezionato
             )
             folium.CircleMarker(
                 [lat, lon],
@@ -121,8 +121,10 @@ def render():
 
     # --- Session state ---
     if "last_filters" not in st.session_state: st.session_state.last_filters = None
+    if "df_base" not in st.session_state: st.session_state.df_base = None
     if "df_filtered_h3" not in st.session_state: st.session_state.df_filtered_h3 = None
     if "map_center" not in st.session_state: st.session_state.map_center = (ROMA_LAT, ROMA_LON)
+    if "map_zoom" not in st.session_state: st.session_state.map_zoom = 12
 
     # --- Filtri affiancati ---
     col1, col2 = st.columns(2)
@@ -137,27 +139,62 @@ def render():
     needs_update = st.session_state.last_filters != filters_key
 
     if needs_update:
-        df_filtered = load_csv_city(selected_city).copy()
-        df_filtered["GENERE_NORM"] = df_filtered["GENERE"].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
+        df_base = load_csv_city(selected_city).copy()
+        df_base["GENERE_NORM"] = df_base["GENERE"].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
         if selected_genres:
-            df_filtered = df_filtered[df_filtered["GENERE_NORM"].isin(selected_genres)]
+            df_base = df_base[df_base["GENERE_NORM"].isin(selected_genres)]
 
-        mean_lat = df_filtered["LATITUDINE"].mean() if not df_filtered.empty else ROMA_LAT
-        mean_lon = df_filtered["LONGITUDINE"].mean() if not df_filtered.empty else ROMA_LON
+        st.session_state.df_base = df_base
+        st.session_state.df_filtered_h3 = df_base
+        st.session_state.last_filters = filters_key
+
+    # --- Filtro per locale ---
+    df_base = st.session_state.df_base
+    df_filtered = st.session_state.df_filtered_h3
+    highlight_locale = None
+
+    if df_base is not None and not df_base.empty:
+        available_locals = ["Tutti"] + sorted(df_base["DES_LOCALE"].unique().tolist())
+        selected_local = st.selectbox("Seleziona locale:", available_locals, index=0, key="filter_local")
+
+        if selected_local != "Tutti":
+            df_display = df_base[df_base["DES_LOCALE"] == selected_local]
+            if not df_display.empty:
+                st.session_state.map_center = (
+                    float(df_display["LATITUDINE"].iloc[0]),
+                    float(df_display["LONGITUDINE"].iloc[0])
+                )
+                st.session_state.map_zoom = 15
+                df_filtered = df_display
+                highlight_locale = selected_local
+        else:
+            df_display = df_base
+            st.session_state.map_center = (
+                float(df_display["LATITUDINE"].mean()) if not df_display.empty else ROMA_LAT,
+                float(df_display["LONGITUDINE"].mean()) if not df_display.empty else ROMA_LON
+            )
+            st.session_state.map_zoom = 12
+            df_filtered = df_display
 
         st.session_state.df_filtered_h3 = df_filtered
-        st.session_state.map_center = (mean_lat, mean_lon)
-        st.session_state.last_filters = filters_key
 
     # --- Mappa e metriche affiancate ---
     df_filtered = st.session_state.df_filtered_h3
     center_lat, center_lon = st.session_state.map_center
+    zoom_level = st.session_state.map_zoom
+
     if df_filtered is not None:
         col_map, col_stats = st.columns([2, 1])
         with col_map:
-            # Spinner durante il caricamento della mappa
             with st.spinner("⏳ Caricamento mappa..."):
-                folium_map = build_map(df_filtered, center_lat, center_lon, H3_LAYER)
+                folium_map = build_map(
+                    df_filtered,
+                    center_lat,
+                    center_lon,
+                    H3_LAYER,
+                    zoom_level=zoom_level,
+                    highlight_locale=highlight_locale
+                )
                 st_folium(folium_map, width=1200, height=800, returned_objects=[])
 
         with col_stats:
@@ -176,7 +213,6 @@ def render():
                 fasce_colors = {1: os.getenv("FASCIA_COLOR_1"), 2: os.getenv("FASCIA_COLOR_2"), 3: os.getenv("FASCIA_COLOR_3")}
 
                 counts = df_filtered["fascia_cell"].value_counts().to_dict()
-                # Assicurati che ci siano tutte le fasce anche se 0
                 for fascia in [1, 2, 3]:
                     counts.setdefault(fascia, 0)
 
@@ -185,7 +221,6 @@ def render():
                     "Locali": [counts[f] for f in counts.keys()]
                 })
 
-                # --- Pie chart ---
                 fig = px.pie(
                     pie_data,
                     names="Fascia",
@@ -198,10 +233,8 @@ def render():
                 )
                 fig.update_layout(
                     showlegend=False,
-                    margin=dict(l=20, r=20, t=10, b=10),  # più margine per le label
-                    height=320  # altezza maggiore
+                    margin=dict(l=20, r=20, t=10, b=10),
+                    height=320
                 )
 
                 st.plotly_chart(fig, use_container_width=True)
-
-

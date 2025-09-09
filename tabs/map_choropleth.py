@@ -18,14 +18,10 @@ GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.s
 
 # ===================== Legend helper =====================
 def add_continuous_legend(m, cmap, position="bottomleft", title="Priorità (bassa → alta)"):
-    """
-    Aggiunge a `m` una legenda verticale continua senza numeri basata su `cmap` (branca.colormap).
-    position: 'topleft' | 'topright' | 'bottomleft' | 'bottomright'
-    """
     import numpy as np
     from branca.element import MacroElement, Template
 
-    STEP = 22  # numero di tappe per il gradiente
+    STEP = 22
     vmin, vmax = float(cmap.vmin), float(cmap.vmax)
     vals = np.linspace(vmin, vmax, STEP)
 
@@ -77,16 +73,15 @@ def add_continuous_legend(m, cmap, position="bottomleft", title="Priorità (bass
 
 
 # ===================== Map builder =====================
-def build_map(df_filtered, center_lat, center_lon, geojson_layer):
+def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=12, highlight_locale=None):
 
     m = folium.Map(
         location=[center_lat, center_lon],
-        zoom_start=12,
+        zoom_start=zoom_level,
         control_scale=False,
         prefer_canvas=True
     )
 
-    # Layer base
     geojson_base = load_geojson()
     if geojson_base:
         folium.GeoJson(
@@ -102,9 +97,8 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer):
 
     layer = load_geojson(geojson_layer)
     if layer is None:
-        return
+        return m
 
-    # --- Estrai i valori ps_mean dalle celle per definire la colormap ---
     ps_vals = []
     for feat in layer.get("features", []):
         v = feat.get("properties", {}).get("ps_mean", None)
@@ -118,12 +112,9 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer):
         vmin, vmax = min(ps_vals), max(ps_vals)
         if vmin == vmax:
             vmax = vmin + 1e-6
-        # colormap continua per le celle (match con colori salvati nel geojson)
         cmap_cells = branca.colormap.linear.YlOrRd_09.scale(vmin, vmax)
-        # legenda continua senza numeri
         add_continuous_legend(m, cmap_cells, position="bottomleft", title="Priorità")
 
-    # --- Disegna poligoni H3 (usiamo il colore già presente nel GeoJSON) ---
     for feat in layer.get("features", []):
         props = feat.get("properties", {})
         color = props.get("color", "#e0e0e0")
@@ -138,7 +129,6 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer):
             fill_opacity=0.4 if props.get("ps_mean") is not None else 0.25
         ).add_to(m)
 
-    # --- Punti locali (colore continuo su priority_score, senza legenda numerica) ---
     if df_filtered is not None and not df_filtered.empty:
         ps_vals_loc = df_filtered["priority_score"].dropna()
         if not ps_vals_loc.empty:
@@ -156,12 +146,21 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer):
             ps_locale = r.get("priority_score", None)
             color = cmap_points(float(ps_locale)) if (ps_locale is not None and cmap_points) else "#cccccc"
 
-            # etichetta di priorità dalla colonna 'priority'
             try:
                 pr_val = int(r.get("priority"))
                 pr_label = PRIORITY_LABEL.get(pr_val, "n.d.")
             except Exception:
                 pr_label = "n.d."
+
+            popup = folium.Popup(
+                f"<b>{r.get('DES_LOCALE', 'Senza nome')}</b><br>"
+                f"Città: {r['CITY']}<br>"
+                f"Genere: {r.get('GENERE_DISPLAY', 'n.d.')}<br>"
+                f"Priorità: <b>{pr_label}</b><br>"
+                f"Eventi totali: {fmt(r.get('events_total'), 0)}<br>",
+                max_width=320,
+                show=(highlight_locale == r.get("DES_LOCALE"))  # 👈 popup auto aperto
+            )
 
             folium.CircleMarker(
                 [lat, lon],
@@ -171,14 +170,7 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer):
                 fill=True,
                 fill_color=color,
                 fill_opacity=0.8,
-                popup=folium.Popup(
-                    f"<b>{r.get('DES_LOCALE', 'Senza nome')}</b><br>"
-                    f"Città: {r['CITY']}<br>"
-                    f"Genere: {r.get('GENERE_DISPLAY', 'n.d.')}<br>"
-                    f"Priorità: <b>{pr_label}</b><br>"
-                    f"Eventi totali: {fmt(r.get('events_total'), 0)}<br>",
-                    max_width=320
-                )
+                popup=popup
             ).add_to(m)
 
     return m
@@ -194,6 +186,9 @@ def render():
     - I **poligoni colorati (celle)** mostrano la priorità media della zona.  
     """)
 
+    if "map_center" not in st.session_state: st.session_state.map_center = (0, 0)
+    if "map_zoom" not in st.session_state: st.session_state.map_zoom = 12
+
     available_cities = list_available_cities()
     available_genres = sorted(GENERI_PRIORITARI) + ["Altro"]
 
@@ -203,25 +198,47 @@ def render():
     with col2:
         selected_genres = st.multiselect("Generi:", available_genres, default=available_genres)
 
-    # Filtra punti
     df_city = load_csv_city(selected_city)
     if df_city.empty:
         st.warning("Nessun dato per la città selezionata.")
         return
+
     df_city["GENERE_DISPLAY"] = df_city["GENERE"].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
     df_filtered = df_city[df_city["GENERE_DISPLAY"].isin(selected_genres)]
 
-    # Centro mappa
-    center_lat = df_filtered["LATITUDINE"].mean() if not df_filtered.empty else df_city["LATITUDINE"].mean()
-    center_lon = df_filtered["LONGITUDINE"].mean() if not df_filtered.empty else df_city["LONGITUDINE"].mean()
+    # --- Filtro per locale ---
+    highlight_locale = None
+    if not df_filtered.empty:
+        available_locals = ["Tutti"] + sorted(df_filtered["DES_LOCALE"].unique().tolist())
+        selected_local = st.selectbox("Seleziona locale:", available_locals, index=0, key="filter_local_priority")
 
-    # --- Mappa e statistiche affiancate ---
+        if selected_local != "Tutti":
+            df_display = df_filtered[df_filtered["DES_LOCALE"] == selected_local]
+            if not df_display.empty:
+                st.session_state.map_center = (
+                    float(df_display["LATITUDINE"].iloc[0]),
+                    float(df_display["LONGITUDINE"].iloc[0])
+                )
+                st.session_state.map_zoom = 15
+                df_filtered = df_display
+                highlight_locale = selected_local
+        else:
+            st.session_state.map_center = (
+                float(df_filtered["LATITUDINE"].mean()),
+                float(df_filtered["LONGITUDINE"].mean())
+            )
+            st.session_state.map_zoom = 12
+
+    center_lat, center_lon = st.session_state.map_center
+    zoom_level = st.session_state.map_zoom
+
+    # --- Mappa e statistiche ---
     if not df_filtered.empty:
         col_map, col_stats = st.columns([2, 1])
 
         with col_map:
             with st.spinner("⏳ Caricamento mappa..."):
-                folium_map = build_map(df_filtered, center_lat, center_lon, H3_LAYER)
+                folium_map = build_map(df_filtered, center_lat, center_lon, H3_LAYER, zoom_level, highlight_locale)
                 st_folium(folium_map, width=1200, height=800, returned_objects=[])
 
         with col_stats:
@@ -261,5 +278,5 @@ def render():
                 st.warning("Colonna 'priority' non trovata nei dati.")
     else:
         with st.spinner("⏳ Caricamento mappa..."):
-            folium_map = build_map(df_filtered, center_lat, center_lon, H3_LAYER)
+            folium_map = build_map(df_filtered, center_lat, center_lon, H3_LAYER, zoom_level, highlight_locale)
             st_folium(folium_map, width=1200, height=800, returned_objects=[])
