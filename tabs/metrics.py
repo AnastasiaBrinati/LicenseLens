@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import os
 import plotly.express as px
+from fontTools.feaLib.ast import fea_keywords
+
 from utils.utilities import get_month_columns, load_locali_data
 import webbrowser
 from utils.sonar import perform_sonar_search
@@ -9,7 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
-GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.strip()])
+GENERI_PRIORITARI = [g.strip() for g in gen_prioritari_str.split(",") if g.strip()]
 
 def create_events_timeline_chart(df_row):
     month_columns = get_month_columns(df_row)
@@ -92,10 +94,11 @@ def render():
         with col_f2:
             if 'GENERE' in df.columns:
                 df['GENERE_CAT'] = df['GENERE'].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
+                default_genres = [v for v in GENERI_PRIORITARI if v != 'Altro'][:3]
                 selected_genres = st.multiselect(
                     "Generi:",
                     options=df['GENERE_CAT'].unique(),
-                    default=df['GENERE_CAT'].unique(),
+                    default=default_genres,
                     key="metrics_genres_tab"
                 )
             else:
@@ -132,7 +135,7 @@ def render():
             return
 
         display_columns = ["DES_LOCALE", "GENERE", "INDIRIZZO", "TOTALE_EVENTI",
-                           "priority_score", "fascia_cell", "peer_comp", "pct_last6m"]
+                           "priority_score", "fascia_cell", "peer_comp", "pct_last6m", "irregularity_score"]
         column_mapping = {
             "DES_LOCALE": "Nome Locale",
             "GENERE": "Genere",
@@ -141,7 +144,8 @@ def render():
             "priority_score": "Priority Score",
             "fascia_cell": "Livello Attività",
             "peer_comp": "Indice di Concorrenza",
-            "pct_last6m": "% Eventi vs Storico"
+            "pct_last6m": "% Eventi vs Storico",
+            "irregularity_score": "Irregularity Score",
         }
         df_to_display = df_top[display_columns].rename(columns=column_mapping)
 

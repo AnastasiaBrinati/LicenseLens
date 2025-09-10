@@ -154,7 +154,7 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=12,
 
             popup = folium.Popup(
                 f"<b>{r.get('DES_LOCALE', 'Senza nome')}</b><br>"
-                f"Città: {r['CITY']}<br>"
+                f"Indirizzo: {r['INDIRIZZO']}<br>"
                 f"Genere: {r.get('GENERE_DISPLAY', 'n.d.')}<br>"
                 f"Priorità: <b>{pr_label}</b><br>"
                 f"Eventi totali: {fmt(r.get('events_total'), 0)}<br>",

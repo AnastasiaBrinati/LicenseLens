@@ -61,7 +61,7 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=12,
             fascia = int(r.get("fascia_cell", 3))
             popup_html = folium.Popup(
                 f"<b>{r.get('DES_LOCALE', 'Senza nome')}</b><br>"
-                f"Città: {r['CITY']}<br>"
+                f"Indirizzo: {r['INDIRIZZO']}<br>"
                 f"Genere: {r.get('GENERE', 'Altro')}<br>"
                 f"Eventi totali (12 mesi): {fmt(r.get('events_total',0),0)}<br>"
                 f"Fascia: {fascia}",
