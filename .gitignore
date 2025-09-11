@@ -1,7 +1,9 @@
 data/
+utils/redshift
 
 .env
 dashboard-eventi.tar
+*.txt
 
 .streamlit
 
