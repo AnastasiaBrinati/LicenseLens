@@ -142,7 +142,7 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=12,
         PRIORITY_LABEL = {1: "Alta", 2: "Media", 3: "Bassa"}
 
         for _, r in df_filtered.iterrows():
-            lat, lon = r["LATITUDINE"], r["LONGITUDINE"]
+            lat, lon = r["latitudine"], r["longitudine"]
             ps_locale = r.get("priority_score", None)
             color = cmap_points(float(ps_locale)) if (ps_locale is not None and cmap_points) else "#cccccc"
 
@@ -153,13 +153,13 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=12,
                 pr_label = "n.d."
 
             popup = folium.Popup(
-                f"<b>{r.get('DES_LOCALE', 'Senza nome')}</b><br>"
-                f"Indirizzo: {r['INDIRIZZO']}<br>"
+                f"<b>{r.get('des_locale', 'Senza nome')}</b><br>"
+                f"Indirizzo: {r['indirizzo']}<br>"
                 f"Genere: {r.get('GENERE_DISPLAY', 'n.d.')}<br>"
                 f"Priorità: <b>{pr_label}</b><br>"
                 f"Eventi totali: {fmt(r.get('events_total'), 0)}<br>",
-                max_width=320,
-                show=(highlight_locale == r.get("DES_LOCALE"))  # 👈 popup auto aperto
+                max_width=200,
+                show=(highlight_locale == r.get("des_locale"))  # 👈 popup auto aperto
             )
 
             folium.CircleMarker(
@@ -186,48 +186,75 @@ def render():
     - I **poligoni colorati (celle)** mostrano la priorità media della zona.  
     """)
 
+    # --- Session state ---
     if "map_center" not in st.session_state: st.session_state.map_center = (0, 0)
     if "map_zoom" not in st.session_state: st.session_state.map_zoom = 12
+    if "last_sede" not in st.session_state: st.session_state.last_sede = None
 
-    available_cities = list_available_cities()
+    available_sedi = list_available_cities()
     available_genres = sorted(GENERI_PRIORITARI) + ["Altro"]
 
+    # --- Riga 1: Sede e Comune ---
     col1, col2 = st.columns(2)
     with col1:
-        selected_city = st.selectbox("Seleziona città:", available_cities, index=0)
-    with col2:
-        selected_genres = st.multiselect("Generi:", available_genres, default=available_genres)
+        selected_sede = st.selectbox("Seleziona sede:", available_sedi, index=0, key="filter_sede_priority")
 
-    df_city = load_csv_city(selected_city)
+    df_city = load_csv_city(selected_sede)
     if df_city.empty:
-        st.warning("Nessun dato per la città selezionata.")
+        st.warning("Nessun dato per la sede selezionata.")
         return
 
-    df_city["GENERE_DISPLAY"] = df_city["GENERE"].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
+    # reset comune se cambio sede
+    if st.session_state.last_sede != selected_sede:
+        st.session_state["filter_comune_priority"] = "Tutti"
+    st.session_state.last_sede = selected_sede
+
+    comuni = ["Tutti"] + sorted(df_city["comune"].dropna().unique())
+    with col2:
+        selected_comune = st.selectbox("Seleziona comune:", comuni,
+                                       index=comuni.index(st.session_state.get("filter_comune_priority", "Tutti")),
+                                       key="filter_comune_priority")
+
+    if selected_comune != "Tutti":
+        df_city = df_city[df_city["comune"] == selected_comune]
+
+    # --- Riga 2: Generi e Locale ---
+    col3, col4 = st.columns(2)
+    with col3:
+        selected_genres = st.multiselect("Generi:", available_genres,
+                                         default=available_genres,
+                                         key="filter_genres_priority")
+
+    df_city["GENERE_DISPLAY"] = df_city["locale_genere"].apply(
+        lambda g: g if g in GENERI_PRIORITARI else "Altro"
+    )
     df_filtered = df_city[df_city["GENERE_DISPLAY"].isin(selected_genres)]
 
-    # --- Filtro per locale ---
     highlight_locale = None
-    if not df_filtered.empty:
-        available_locals = ["Tutti"] + sorted(df_filtered["DES_LOCALE"].unique().tolist())
-        selected_local = st.selectbox("Seleziona locale:", available_locals, index=0, key="filter_local_priority")
+    with col4:
+        if not df_filtered.empty:
+            available_locals = ["Tutti"] + sorted(df_filtered["des_locale"].unique().tolist())
+            selected_local = st.selectbox("Seleziona locale:", available_locals, index=0, key="filter_local_priority")
 
-        if selected_local != "Tutti":
-            df_display = df_filtered[df_filtered["DES_LOCALE"] == selected_local]
-            if not df_display.empty:
-                st.session_state.map_center = (
-                    float(df_display["LATITUDINE"].iloc[0]),
-                    float(df_display["LONGITUDINE"].iloc[0])
-                )
-                st.session_state.map_zoom = 15
-                df_filtered = df_display
-                highlight_locale = selected_local
+            if selected_local != "Tutti":
+                df_display = df_filtered[df_filtered["des_locale"] == selected_local]
+                if not df_display.empty:
+                    st.session_state.map_center = (
+                        float(df_display["latitudine"].iloc[0]),
+                        float(df_display["longitudine"].iloc[0])
+                    )
+                    st.session_state.map_zoom = 15
+                    df_filtered = df_display
+                    highlight_locale = selected_local
         else:
-            st.session_state.map_center = (
-                float(df_filtered["LATITUDINE"].mean()),
-                float(df_filtered["LONGITUDINE"].mean())
-            )
-            st.session_state.map_zoom = 12
+            selected_local = "Tutti"
+
+    if selected_local == "Tutti" and not df_filtered.empty:
+        st.session_state.map_center = (
+            float(df_filtered["latitudine"].mean()),
+            float(df_filtered["longitudine"].mean())
+        )
+        st.session_state.map_zoom = 12
 
     center_lat, center_lon = st.session_state.map_center
     zoom_level = st.session_state.map_zoom
@@ -239,7 +266,7 @@ def render():
         with col_map:
             with st.spinner("⏳ Caricamento mappa..."):
                 folium_map = build_map(df_filtered, center_lat, center_lon, H3_LAYER, zoom_level, highlight_locale)
-                st_folium(folium_map, width=1200, height=800, returned_objects=[])
+                st_folium(folium_map, width=1800, height=800, returned_objects=[])
 
         with col_stats:
             st.subheader("📊 Statistiche - ultimi 12 mesi")
@@ -279,4 +306,5 @@ def render():
     else:
         with st.spinner("⏳ Caricamento mappa..."):
             folium_map = build_map(df_filtered, center_lat, center_lon, H3_LAYER, zoom_level, highlight_locale)
-            st_folium(folium_map, width=1200, height=800, returned_objects=[])
+            st_folium(folium_map, width=1800, height=800, returned_objects=[])
+

@@ -92,8 +92,8 @@ def render():
             )
 
         with col_f2:
-            if 'GENERE' in df.columns:
-                df['GENERE_CAT'] = df['GENERE'].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
+            if 'locale_genere' in df.columns:
+                df['GENERE_CAT'] = df['locale_genere'].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
                 default_genres = [v for v in GENERI_PRIORITARI if v != 'Altro'][:3]
                 selected_genres = st.multiselect(
                     "Generi:",
@@ -113,8 +113,8 @@ def render():
 
         if selected_genres:
             df = df[df['GENERE_CAT'].isin(selected_genres)]
-        elif 'GENERE' in df.columns:
-            st.warning("Seleziona almeno un genere.")
+        elif 'locale_genere' in df.columns:
+            st.warning("Seleziona almeno un locale_genere.")
             return
 
     if df.empty:
@@ -134,12 +134,12 @@ def render():
             st.error("Colonna 'priority_score' non trovata nei dati")
             return
 
-        display_columns = ["DES_LOCALE", "GENERE", "INDIRIZZO", "TOTALE_EVENTI",
+        display_columns = ["des_locale", "locale_genere", "indirizzo", "TOTALE_EVENTI",
                            "priority_score", "fascia_cell", "peer_comp", "pct_last6m", "irregularity_score"]
         column_mapping = {
-            "DES_LOCALE": "Nome Locale",
-            "GENERE": "Genere",
-            "INDIRIZZO": "Indirizzo",
+            "des_locale": "Nome Locale",
+            "locale_genere": "Genere",
+            "indirizzo": "Indirizzo",
             "TOTALE_EVENTI": "Eventi Totali",
             "priority_score": "Priority Score",
             "fascia_cell": "Livello Attività",
@@ -220,8 +220,8 @@ def render():
         st.subheader("\n")
         st.subheader("Quota di locali per genere")
 
-        if 'GENERE' in df_top.columns:
-            genre_counts_top = df_top['GENERE'].value_counts()
+        if 'locale_genere' in df_top.columns:
+            genre_counts_top = df_top['locale_genere'].value_counts()
             pie_data = pd.DataFrame({
                 "Genere": genre_counts_top.index,
                 "Locali": genre_counts_top.values
@@ -255,4 +255,4 @@ def render():
 
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("Colonna 'GENERE' non disponibile")
+            st.info("Colonna 'locale_genere' non disponibile")

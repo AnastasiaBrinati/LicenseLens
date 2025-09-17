@@ -13,12 +13,10 @@ DATA_DIR = os.getenv("DATA_DIR")
 H3_LAYER = os.path.join(DATA_DIR, "geo", "h3_polygons.geojson")
 gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
 GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.strip()])
-ROMA_LAT, ROMA_LON = os.getenv("ROMA_LAT", 0), os.getenv("ROMA_LON", 0)
-
+ROMA_LAT, ROMA_LON = float(os.getenv("ROMA_LAT", 0)), float(os.getenv("ROMA_LON", 0))
 
 # ===================== Map builder =====================
 def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=12, highlight_locale=None):
-
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=zoom_level,
@@ -40,6 +38,7 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=12,
             }
         ).add_to(m)
 
+    # Layer H3
     layer = load_geojson(geojson_layer)
     if layer is not None:
         folium.GeoJson(
@@ -57,16 +56,16 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=12,
     # Punti filtrati
     if df_filtered is not None and not df_filtered.empty:
         for _, r in df_filtered.iterrows():
-            lat, lon = float(r["LATITUDINE"]), float(r["LONGITUDINE"])
+            lat, lon = float(r["latitudine"]), float(r["longitudine"])
             fascia = int(r.get("fascia_cell", 3))
             popup_html = folium.Popup(
-                f"<b>{r.get('DES_LOCALE', 'Senza nome')}</b><br>"
-                f"Indirizzo: {r['INDIRIZZO']}<br>"
-                f"Genere: {r.get('GENERE', 'Altro')}<br>"
+                f"<b>{r.get('des_locale', 'Senza nome')}</b><br>"
+                f"Indirizzo: {r['indirizzo']}<br>"
+                f"Genere: {r.get('locale_genere', 'Altro')}<br>"
                 f"Eventi totali (12 mesi): {fmt(r.get('events_total',0),0)}<br>"
                 f"Fascia: {fascia}",
-                max_width=320,
-                show=(highlight_locale == r.get("DES_LOCALE"))  # 👈 popup aperto se locale selezionato
+                max_width=200,
+                show=(highlight_locale == r.get("des_locale"))
             )
             folium.CircleMarker(
                 [lat, lon],
@@ -106,7 +105,6 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=12,
 
     return m
 
-
 # ===================== Render =====================
 def render():
     st.header("Zone per livello di attività")
@@ -125,61 +123,71 @@ def render():
     if "df_filtered_h3" not in st.session_state: st.session_state.df_filtered_h3 = None
     if "map_center" not in st.session_state: st.session_state.map_center = (ROMA_LAT, ROMA_LON)
     if "map_zoom" not in st.session_state: st.session_state.map_zoom = 12
+    if "last_sede" not in st.session_state: st.session_state.last_sede = None
 
-    # --- Filtri affiancati ---
-    col1, col2 = st.columns(2)
-    available_cities = list_available_cities()
+    # =================== FILTRI ===================
+    # --- Riga 1: Sede e Comune ---
+    col1, col2 = st.columns([1, 1])
+
+    # Filtro Sede tramite list_available_cities()
+    available_sedi = list_available_cities()
     with col1:
-        selected_city = st.selectbox("Seleziona città:", available_cities, index=0, key="filter_city_auto")
-    available_genres = sorted(GENERI_PRIORITARI) + ["Altro"]
+        selected_sede = st.selectbox("Seleziona sede:", available_sedi, index=0, key="filter_sede")
+
+    # Carica dataframe della sede selezionata
+    df_base = load_csv_city(selected_sede).copy()
+    df_base["GENERE_NORM"] = df_base["locale_genere"].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
+    df_filtered = df_base.copy()
+
+    # Reset automatico del Comune se la sede cambia
+    if st.session_state.get("last_sede") != selected_sede:
+        st.session_state["filter_comune"] = "Tutti"
+    st.session_state.last_sede = selected_sede
+
+    # Comune: solo comuni della sede selezionata
+    available_comuni = ["Tutti"] + sorted(df_filtered["comune"].dropna().unique())
     with col2:
-        selected_genres = st.multiselect("Generi:", available_genres, default=available_genres, key="filter_genre_auto")
+        selected_comune = st.selectbox("Seleziona comune:", available_comuni,
+                                       index=available_comuni.index(st.session_state.get("filter_comune", "Tutti")),
+                                       key="filter_comune")
+    if selected_comune != "Tutti":
+        df_filtered = df_filtered[df_filtered["comune"] == selected_comune]
 
-    filters_key = (selected_city, tuple(sorted(selected_genres)))
-    needs_update = st.session_state.last_filters != filters_key
+    # --- Riga 2: Generi e Locale ---
+    col3, col4 = st.columns([1, 1])
+    available_genres = sorted(GENERI_PRIORITARI) + ["Altro"]
+    with col3:
+        selected_genres = st.multiselect("Generi:", available_genres, default=available_genres, key="filter_genre")
+    if selected_genres:
+        df_filtered = df_filtered[df_filtered["GENERE_NORM"].isin(selected_genres)]
 
-    if needs_update:
-        df_base = load_csv_city(selected_city).copy()
-        df_base["GENERE_NORM"] = df_base["GENERE"].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
-        if selected_genres:
-            df_base = df_base[df_base["GENERE_NORM"].isin(selected_genres)]
-
-        st.session_state.df_base = df_base
-        st.session_state.df_filtered_h3 = df_base
-        st.session_state.last_filters = filters_key
-
-    # --- Filtro per locale ---
-    df_base = st.session_state.df_base
-    df_filtered = st.session_state.df_filtered_h3
-    highlight_locale = None
-
-    if df_base is not None and not df_base.empty:
-        available_locals = ["Tutti"] + sorted(df_base["DES_LOCALE"].unique().tolist())
+    available_locals = ["Tutti"] + sorted(df_filtered["des_locale"].unique().tolist())
+    with col4:
         selected_local = st.selectbox("Seleziona locale:", available_locals, index=0, key="filter_local")
+    highlight_locale = None
+    if selected_local != "Tutti":
+        df_filtered = df_filtered[df_filtered["des_locale"] == selected_local]
+        highlight_locale = selected_local
 
-        if selected_local != "Tutti":
-            df_display = df_base[df_base["DES_LOCALE"] == selected_local]
-            if not df_display.empty:
-                st.session_state.map_center = (
-                    float(df_display["LATITUDINE"].iloc[0]),
-                    float(df_display["LONGITUDINE"].iloc[0])
-                )
-                st.session_state.map_zoom = 15
-                df_filtered = df_display
-                highlight_locale = selected_local
-        else:
-            df_display = df_base
-            st.session_state.map_center = (
-                float(df_display["LATITUDINE"].mean()) if not df_display.empty else ROMA_LAT,
-                float(df_display["LONGITUDINE"].mean()) if not df_display.empty else ROMA_LON
-            )
-            st.session_state.map_zoom = 12
-            df_filtered = df_display
+    # =================== UPDATE SESSION ===================
+    st.session_state.df_base = df_base
+    st.session_state.df_filtered_h3 = df_filtered
+    st.session_state.last_filters = (
+        selected_sede, tuple(sorted(selected_genres)), selected_comune, selected_local
+    )
 
-        st.session_state.df_filtered_h3 = df_filtered
+    # Aggiorna centro mappa
+    if not df_filtered.empty:
+        st.session_state.map_center = (
+            float(df_filtered["latitudine"].mean()),
+            float(df_filtered["longitudine"].mean())
+        )
+        st.session_state.map_zoom = 12
+    else:
+        st.session_state.map_center = (ROMA_LAT, ROMA_LON)
+        st.session_state.map_zoom = 12
 
-    # --- Mappa e metriche affiancate ---
-    df_filtered = st.session_state.df_filtered_h3
+    # =================== MAPPA E STATISTICHE ===================
     center_lat, center_lon = st.session_state.map_center
     zoom_level = st.session_state.map_zoom
 
@@ -195,7 +203,7 @@ def render():
                     zoom_level=zoom_level,
                     highlight_locale=highlight_locale
                 )
-                st_folium(folium_map, width=1200, height=800, returned_objects=[])
+                st_folium(folium_map, width=1800, height=800, returned_objects=[])
 
         with col_stats:
             if not df_filtered.empty:
@@ -205,10 +213,7 @@ def render():
                 st.metric("Totale Locali", f"{total_locali:,}")
                 st.metric("Totale Eventi", f"{int(total_eventi):,}")
 
-                # --- Subheader ---
                 st.subheader("Quota locali per livello di attività")
-
-                # --- Dati per il pie chart ---
                 fasce_labels = {1: "Alta attività", 2: "Media attività", 3: "Bassa attività"}
                 fasce_colors = {1: os.getenv("FASCIA_COLOR_1"), 2: os.getenv("FASCIA_COLOR_2"), 3: os.getenv("FASCIA_COLOR_3")}
 

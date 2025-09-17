@@ -32,8 +32,8 @@ def load_geojson(path: Optional[str] = None) -> Optional[dict]:
 
 @st.cache_data
 def list_available_cities() -> list:
-    all_csv = [f for f in os.listdir(DATA_DIR) if f.startswith("locali_") and f.endswith(".csv")]
-    return sorted([f.replace("locali_", "").replace(".csv", "") for f in all_csv])
+    all_csv = [f for f in os.listdir(DATA_DIR) if f.startswith("Locali_") and f.endswith(".csv")]
+    return sorted([f.replace("Locali_", "").replace(".csv", "") for f in all_csv])
 
 @st.cache_data
 def load_csv_city(city: str) -> pd.DataFrame:
@@ -42,7 +42,7 @@ def load_csv_city(city: str) -> pd.DataFrame:
     Restituisce un DataFrame con colonne numeriche convertite e colonna 'CITY' impostata.
     Il risultato è memorizzato in cache per efficienza.
     """
-    path = os.path.join(DATA_DIR, f"locali_{city}.csv")
+    path = os.path.join(DATA_DIR, f"Locali_{city}.csv")
     if not os.path.exists(path):
         st.warning(f"⚠️ CSV non trovato per la città: {city}")
         return pd.DataFrame()
@@ -51,12 +51,12 @@ def load_csv_city(city: str) -> pd.DataFrame:
     df["CITY"] = city
 
     # Converti alcune colonne in numerico
-    for col in ["LATITUDINE", "LONGITUDINE"]:
+    for col in ["latitudine", "longitudine"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    df.dropna(subset=["LATITUDINE", "LONGITUDINE"]).query(
-        "LATITUDINE!=0 & LONGITUDINE!=0"
+    df.dropna(subset=["latitudine", "longitudine"]).query(
+        "latitudine!=0 & longitudine!=0"
     )
 
     for c in ["events_total", "pct_last6m", "peer_comp", "priority_score"]:
@@ -68,7 +68,7 @@ def load_csv_city(city: str) -> pd.DataFrame:
 @st.cache_data
 def load_locali_data():
     """Carica tutti i file CSV locali_* dalla cartella DATA_DIR e aggiunge la colonna 'citta' dal nome file"""
-    pattern = f"./data/locali_*.csv"
+    pattern = f"./data/Locali_*.csv"
     csv_files = glob.glob(pattern)
 
     if not csv_files:
@@ -79,7 +79,7 @@ def load_locali_data():
     for file in csv_files:
         try:
             df = pd.read_csv(file)
-            city_name = Path(file).stem.replace("locali_", "")
+            city_name = Path(file).stem.replace("Locali_", "")
             df['citta'] = city_name
             dataframes.append(df)
         except Exception as e:

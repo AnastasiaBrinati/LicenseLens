@@ -27,13 +27,13 @@ def fmt_float(x, dec=1):
         return None
 
 def main():
-    all_csv = [f for f in os.listdir(DATA_DIR) if f.startswith("locali_") and f.endswith(".csv")]
+    all_csv = [f for f in os.listdir(DATA_DIR) if f.startswith("Locali_") and f.endswith(".csv")]
     if not all_csv:
         raise RuntimeError(f"Nessun CSV trovato in {DATA_DIR}")
 
     dfs = []
     for f in all_csv:
-        city = f.replace("locali_", "").replace(".csv", "")
+        city = f.replace("Locali_", "").replace(".csv", "")
         df_city = pd.read_csv(os.path.join(DATA_DIR, f))
         df_city["CITY"] = city
         dfs.append(df_city)
@@ -41,14 +41,14 @@ def main():
     df = pd.concat(dfs, ignore_index=True)
 
     # Conversioni
-    for col in ["LATITUDINE", "LONGITUDINE"]:
+    for col in ["latitudine", "longitudine"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     for c in ["events_total", "pct_last6m", "peer_comp", "priority_score"]:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    df = df.dropna(subset=["LATITUDINE", "LONGITUDINE", "h3_cell", "fascia_cell"])\
-           .query("LATITUDINE!=0 & LONGITUDINE!=0")\
+    df = df.dropna(subset=["latitudine", "longitudine", "h3_cell", "fascia_cell"])\
+           .query("latitudine!=0 & longitudine!=0")\
            .copy()
 
     if df.empty:

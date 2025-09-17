@@ -114,12 +114,12 @@ def generate_choropleth(df: pd.DataFrame):
 # ===================== Funzioni =====================
 def load_all_locali() -> pd.DataFrame:
     """Carica tutti i CSV locali_* nella cartella DATA_DIR"""
-    all_files = [f for f in os.listdir(DATA_DIR) if f.startswith("locali_") and f.endswith(".csv")]
+    all_files = [f for f in os.listdir(DATA_DIR) if f.startswith("Locali_") and f.endswith(".csv")]
     dfs = []
     for fname in all_files:
         df_tmp = pd.read_csv(os.path.join(DATA_DIR, fname))
         # Assicurati che LAT/LON siano numerici
-        for col in ["LATITUDINE", "LONGITUDINE"]:
+        for col in ["latitudine", "longitudine"]:
             df_tmp[col] = pd.to_numeric(df_tmp[col], errors="coerce")
         dfs.append(df_tmp)
     if dfs:
