@@ -78,22 +78,41 @@ def render():
         st.error("Impossibile caricare i dati. Verifica la presenza dei file CSV.")
         return
 
-    # ------------------ Filtri affiancati ------------------
-    if 'citta' in df.columns:
+    # ------------------ Filtri ------------------
+    if 'sede' in df.columns and 'comune' in df.columns:
+        # Prima riga: sede + comune
         col_f1, col_f2 = st.columns(2)
 
         with col_f1:
-            cities = sorted(df['citta'].dropna().unique().tolist())
-            selected_cities = st.multiselect(
-                "Seleziona città",
-                options=cities,
-                default=cities[0],
-                key="metrics_cities_tab"
+            sedi = sorted(df['sede'].dropna().unique().tolist())
+            selected_sedi = st.multiselect(
+                "Seleziona sede",
+                options=sedi,
+                default=[sedi[0]] if sedi else [],
+                key="metrics_sedi_tab"
             )
 
         with col_f2:
+            comuni_options = (
+                df[df['sede'].isin(selected_sedi)]['comune'].dropna().unique().tolist()
+                if selected_sedi else []
+            )
+            comuni_options = sorted(comuni_options)
+            selected_comuni = st.multiselect(
+                "Seleziona comune (opzionale)",
+                options=comuni_options,
+                default=[],   # 🔹 vuoto = tutti i comuni
+                key="metrics_comuni_tab"
+            )
+
+        # Seconda riga: genere + locale
+        col_f3, col_f4 = st.columns(2)
+
+        with col_f3:
             if 'locale_genere' in df.columns:
-                df['GENERE_CAT'] = df['locale_genere'].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
+                df['GENERE_CAT'] = df['locale_genere'].apply(
+                    lambda g: g if g in GENERI_PRIORITARI else "Altro"
+                )
                 default_genres = [v for v in GENERI_PRIORITARI if v != 'Altro'][:3]
                 selected_genres = st.multiselect(
                     "Generi:",
@@ -104,18 +123,38 @@ def render():
             else:
                 selected_genres = None
 
+        with col_f4:
+            locali_options = df[
+                (df['sede'].isin(selected_sedi)) &
+                (df['comune'].isin(selected_comuni) if selected_comuni else True)  # 🔹 se vuoto → tutti
+            ]['des_locale'].dropna().unique().tolist()
+            locali_options = sorted(locali_options)
+            selected_locali = st.multiselect(
+                "Seleziona locale (opzionale)",
+                options=locali_options,
+                default=[],
+                key="metrics_locali_tab"
+            )
+
         # Applica i filtri
-        if selected_cities:
-            df = df[df['citta'].isin(selected_cities)]
+        if selected_sedi:
+            df = df[df['sede'].isin(selected_sedi)]
         else:
-            st.warning("Seleziona almeno una città.")
+            st.warning("Seleziona almeno una sede.")
             return
+
+        if selected_comuni:
+            df = df[df['comune'].isin(selected_comuni)]
+        # 🔹 altrimenti nessun filtro → tutti i comuni della sede
 
         if selected_genres:
             df = df[df['GENERE_CAT'].isin(selected_genres)]
         elif 'locale_genere' in df.columns:
             st.warning("Seleziona almeno un locale_genere.")
             return
+
+        if selected_locali:
+            df = df[df['des_locale'].isin(selected_locali)]
 
     if df.empty:
         st.warning("Nessun dato disponibile con i filtri selezionati")
@@ -179,7 +218,6 @@ def render():
                 button_key = f"deep_search_{selected_idx}"
                 research_file = "./data/deep/sonar.csv"
                 if st.button(f"🔍 Deep Research: {locale_name}", key=button_key):
-                    # Leggi il file CSV se esiste
                     if os.path.exists(research_file):
                         try:
                             df_research = pd.read_csv(research_file)
@@ -189,7 +227,6 @@ def render():
                     else:
                         df_research = pd.DataFrame(columns=['data_deep_search', 'nome_locale', 'descrizione'])
 
-                    # Controlla se il locale è già presente
                     existing_entry = df_research[df_research['nome_locale'] == locale_name]
 
                     if not existing_entry.empty:
@@ -214,7 +251,6 @@ def render():
 
     # ------------------ Colonna laterale ------------------
     with col2:
-
         import plotly.express as px
         st.subheader("\n")
         st.subheader("\n")
@@ -237,7 +273,6 @@ def render():
                 color_discrete_sequence=colors
             )
 
-            # Mostra solo percentuale sugli spicchi, hover con dettagli completi
             fig.update_traces(
                 textinfo='percent',
                 hovertemplate="<b>%{label}</b><br>Locali: %{value}<br>Percentuale: %{percent}<extra></extra>"
@@ -247,9 +282,9 @@ def render():
                 showlegend=True,
                 margin=dict(l=10, r=10, t=10, b=10),
                 height=320,
-                legend_itemclick=False,  # disabilita il click singolo sulla legenda
-                legend_itemdoubleclick=False,  # disabilita doppio click
-                paper_bgcolor='rgba(0,0,0,0)',  # trasparente per dark mode
+                legend_itemclick=False,
+                legend_itemdoubleclick=False,
+                paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)'
             )
 
