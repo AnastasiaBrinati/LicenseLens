@@ -85,10 +85,19 @@ def render():
 
         with col_f1:
             sedi = sorted(df['sede'].dropna().unique().tolist())
+            # Trova 'Roma' in modo robusto (case/whitespace insensitive)
+            roma_option = next((s for s in sedi if isinstance(s, str) and s.strip().lower() == 'roma'), None)
+            default_selection = [roma_option] if roma_option else ([sedi[0]] if sedi else [])
+            # Imposta sessione solo se vuota o non coerente con le opzioni
+            if (
+                'metrics_sedi_tab' not in st.session_state or
+                not st.session_state['metrics_sedi_tab'] or
+                any(sel not in sedi for sel in st.session_state['metrics_sedi_tab'])
+            ):
+                st.session_state['metrics_sedi_tab'] = default_selection
             selected_sedi = st.multiselect(
                 "Seleziona sede",
                 options=sedi,
-                default=[sedi[0]] if sedi else [],
                 key="metrics_sedi_tab"
             )
 
@@ -124,10 +133,13 @@ def render():
                 selected_genres = None
 
         with col_f4:
-            locali_options = df[
+            df_for_locals = df[
                 (df['sede'].isin(selected_sedi)) &
-                (df['comune'].isin(selected_comuni) if selected_comuni else True)  # 🔹 se vuoto → tutti
-            ]['des_locale'].dropna().unique().tolist()
+                (df['comune'].isin(selected_comuni) if selected_comuni else True)
+            ]
+            if selected_genres:
+                df_for_locals = df_for_locals[df_for_locals['GENERE_CAT'].isin(selected_genres)]
+            locali_options = df_for_locals['des_locale'].dropna().unique().tolist()
             locali_options = sorted(locali_options)
             selected_locali = st.multiselect(
                 "Seleziona locale (opzionale)",
@@ -167,6 +179,16 @@ def render():
         # ------------------ Slider Top N locale ------------------
         top_n = st.slider("Top N locali:", min_value=5, max_value=50, value=10, key="metrics_top_n")
 
+        # Assicura colonna TOTALE_EVENTI per tabella (fallback da events_total)
+        if 'TOTALE_EVENTI' not in df.columns:
+            if 'events_total' in df.columns:
+                try:
+                    df['TOTALE_EVENTI'] = pd.to_numeric(df['events_total'], errors='coerce').fillna(0).astype(int)
+                except Exception:
+                    df['TOTALE_EVENTI'] = 0
+            else:
+                df['TOTALE_EVENTI'] = 0
+
         if 'priority_score' in df.columns:
             df_top = df.nlargest(top_n, 'priority_score').reset_index(drop=True)
         else:
@@ -205,7 +227,7 @@ def render():
             selected_idx = selected_row.selection['rows'][0]
             selected_locale_data = df_top.iloc[[selected_idx]]
 
-            locale_name = selected_locale_data.iloc[0].get('DES_LOCALE', f'Locale #{selected_idx + 1}')
+            locale_name = selected_locale_data.iloc[0].get('des_locale', f'Locale #{selected_idx + 1}')
             priority_score = selected_locale_data.iloc[0].get('priority_score', 'N/A')
 
             st.info(f"📍 **Locale selezionato:** {locale_name} | **Priority Score:** {priority_score}")

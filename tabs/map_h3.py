@@ -1,6 +1,10 @@
 import streamlit as st
 import pandas as pd
 import folium, os
+from os.path import getmtime
+import math
+from typing import List, Tuple
+import streamlit.components.v1 as components
 import plotly.express as px
 from branca.element import Template, MacroElement
 from streamlit_folium import st_folium
@@ -14,9 +18,10 @@ H3_LAYER = os.path.join(DATA_DIR, "geo", "h3_polygons.geojson")
 gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
 GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.strip()])
 ROMA_LAT, ROMA_LON = float(os.getenv("ROMA_LAT", 0)), float(os.getenv("ROMA_LON", 0))
+zoom_l = 8
 
 # ===================== Map builder =====================
-def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=12, highlight_locale=None):
+def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=zoom_l, highlight_locale=None):
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=zoom_level,
@@ -105,6 +110,27 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=12,
 
     return m
 
+
+# ===================== Cached renderer =====================
+@st.cache_data(show_spinner=False)
+def _render_map_html(
+    points_payload: Tuple[Tuple[float, float, int, str, str, str, float], ...],
+    center_lat: float,
+    center_lon: float,
+    geojson_layer_path: str,
+    geojson_layer_mtime: float,
+    base_geojson_mtime: float,
+    zoom_level: int,
+    highlight_locale: str,
+) -> str:
+    dummy_df = pd.DataFrame(points_payload, columns=[
+        "latitudine", "longitudine", "fascia_cell", "des_locale", "indirizzo", "locale_genere", "events_total"
+    ]) if points_payload else pd.DataFrame(columns=[
+        "latitudine", "longitudine", "fascia_cell", "des_locale", "indirizzo", "locale_genere", "events_total"
+    ])
+    m = build_map(dummy_df, center_lat, center_lon, geojson_layer_path, zoom_level, highlight_locale)
+    return m.get_root().render()
+
 # ===================== Render =====================
 def render():
     st.header("Zone per livello di attività")
@@ -122,7 +148,7 @@ def render():
     if "df_base" not in st.session_state: st.session_state.df_base = None
     if "df_filtered_h3" not in st.session_state: st.session_state.df_filtered_h3 = None
     if "map_center" not in st.session_state: st.session_state.map_center = (ROMA_LAT, ROMA_LON)
-    if "map_zoom" not in st.session_state: st.session_state.map_zoom = 12
+    if "map_zoom" not in st.session_state: st.session_state.map_zoom = zoom_l
     if "last_sede" not in st.session_state: st.session_state.last_sede = None
 
     # =================== FILTRI ===================
@@ -132,7 +158,8 @@ def render():
     # Filtro Sede tramite list_available_cities()
     available_sedi = list_available_cities()
     with col1:
-        selected_sede = st.selectbox("Seleziona sede:", available_sedi, index=0, key="filter_sede")
+        default_idx = available_sedi.index("Roma") if "Roma" in available_sedi else 0
+        selected_sede = st.selectbox("Seleziona sede:", available_sedi, index=default_idx, key="filter_sede")
 
     # Carica dataframe della sede selezionata
     df_base = load_csv_city(selected_sede).copy()
@@ -150,8 +177,10 @@ def render():
         selected_comune = st.selectbox("Seleziona comune:", available_comuni,
                                        index=available_comuni.index(st.session_state.get("filter_comune", "Tutti")),
                                        key="filter_comune")
+    comune_selected = False
     if selected_comune != "Tutti":
         df_filtered = df_filtered[df_filtered["comune"] == selected_comune]
+        comune_selected = True
 
     # --- Riga 2: Generi e Locale ---
     col3, col4 = st.columns([1, 1])
@@ -182,10 +211,10 @@ def render():
             float(df_filtered["latitudine"].mean()),
             float(df_filtered["longitudine"].mean())
         )
-        st.session_state.map_zoom = 12
+        st.session_state.map_zoom = 12 if comune_selected else zoom_l
     else:
         st.session_state.map_center = (ROMA_LAT, ROMA_LON)
-        st.session_state.map_zoom = 12
+        st.session_state.map_zoom = zoom_l
 
     # =================== MAPPA E STATISTICHE ===================
     center_lat, center_lon = st.session_state.map_center
@@ -195,15 +224,38 @@ def render():
         col_map, col_stats = st.columns([2, 1])
         with col_map:
             with st.spinner("⏳ Caricamento mappa..."):
-                folium_map = build_map(
-                    df_filtered,
+                # Costruisci payload minimale per cache
+                if df_filtered is not None and not df_filtered.empty:
+                    points_payload = tuple(
+                        (
+                            float(r["latitudine"]),
+                            float(r["longitudine"]),
+                            int(r.get("fascia_cell", 3) if not pd.isna(r.get("fascia_cell", 3)) else 3),
+                            str(r.get("des_locale", "")),
+                            str(r.get("indirizzo", "")),
+                            str(r.get("locale_genere", "Altro")),
+                            float(r.get("events_total", 0) if not pd.isna(r.get("events_total", 0)) else 0.0),
+                        )
+                        for _, r in df_filtered.iterrows()
+                    )
+                else:
+                    points_payload = tuple()
+
+                geojson_mtime = os.path.getmtime(H3_LAYER) if os.path.exists(H3_LAYER) else 0.0
+                base_geojson_path = os.path.join(DATA_DIR, "geo", "seprag.geojson")
+                base_mtime = os.path.getmtime(base_geojson_path) if os.path.exists(base_geojson_path) else 0.0
+
+                html = _render_map_html(
+                    points_payload,
                     center_lat,
                     center_lon,
                     H3_LAYER,
-                    zoom_level=zoom_level,
-                    highlight_locale=highlight_locale
+                    geojson_mtime,
+                    base_mtime,
+                    int(zoom_level),
+                    highlight_locale or "",
                 )
-                st_folium(folium_map, width=1800, height=800, returned_objects=[])
+                components.html(html, height=800)
 
         with col_stats:
             if not df_filtered.empty:

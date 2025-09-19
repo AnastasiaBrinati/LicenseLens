@@ -5,6 +5,8 @@ import os
 import folium
 import plotly.express as px
 from streamlit_folium import st_folium
+from os.path import getmtime
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
 from utils.utilities import fmt, load_csv_city, list_available_cities, load_geojson
 
@@ -14,6 +16,7 @@ DATA_DIR = os.getenv("DATA_DIR")
 H3_LAYER = os.path.join(DATA_DIR, "geo", "choropleth_layer.geojson")
 gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
 GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.strip()])
+zoom_l = 8
 
 
 # ===================== Legend helper =====================
@@ -73,7 +76,7 @@ def add_continuous_legend(m, cmap, position="bottomleft", title="Priorità (bass
 
 
 # ===================== Map builder =====================
-def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=12, highlight_locale=None):
+def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=zoom_l, highlight_locale=None):
 
     m = folium.Map(
         location=[center_lat, center_lon],
@@ -176,6 +179,27 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=12,
     return m
 
 
+# ===================== Cached renderer =====================
+@st.cache_data(show_spinner=False)
+def _render_map_html_priority(
+    points_payload,
+    center_lat: float,
+    center_lon: float,
+    geojson_layer_path: str,
+    geojson_layer_mtime: float,
+    base_geojson_mtime: float,
+    zoom_level: int,
+    highlight_locale: str,
+):
+    dummy_df = pd.DataFrame(points_payload, columns=[
+        "latitudine", "longitudine", "priority_score", "priority", "des_locale", "indirizzo", "GENERE_DISPLAY", "events_total"
+    ]) if points_payload else pd.DataFrame(columns=[
+        "latitudine", "longitudine", "priority_score", "priority", "des_locale", "indirizzo", "GENERE_DISPLAY", "events_total"
+    ])
+    m = build_map(dummy_df, center_lat, center_lon, geojson_layer_path, zoom_level, highlight_locale)
+    return m.get_root().render()
+
+
 # ===================== Render =====================
 def render():
     st.header("Zone con priorità di attenzione")
@@ -188,7 +212,7 @@ def render():
 
     # --- Session state ---
     if "map_center" not in st.session_state: st.session_state.map_center = (0, 0)
-    if "map_zoom" not in st.session_state: st.session_state.map_zoom = 12
+    if "map_zoom" not in st.session_state: st.session_state.map_zoom = zoom_l
     if "last_sede" not in st.session_state: st.session_state.last_sede = None
 
     available_sedi = list_available_cities()
@@ -197,7 +221,8 @@ def render():
     # --- Riga 1: Sede e Comune ---
     col1, col2 = st.columns(2)
     with col1:
-        selected_sede = st.selectbox("Seleziona sede:", available_sedi, index=0, key="filter_sede_priority")
+        default_idx = available_sedi.index("Roma") if "Roma" in available_sedi else 0
+        selected_sede = st.selectbox("Seleziona sede:", available_sedi, index=default_idx, key="filter_sede_priority")
 
     df_city = load_csv_city(selected_sede)
     if df_city.empty:
@@ -215,8 +240,10 @@ def render():
                                        index=comuni.index(st.session_state.get("filter_comune_priority", "Tutti")),
                                        key="filter_comune_priority")
 
+    comune_selected = False
     if selected_comune != "Tutti":
         df_city = df_city[df_city["comune"] == selected_comune]
+        comune_selected = True
 
     # --- Riga 2: Generi e Locale ---
     col3, col4 = st.columns(2)
@@ -243,7 +270,7 @@ def render():
                         float(df_display["latitudine"].iloc[0]),
                         float(df_display["longitudine"].iloc[0])
                     )
-                    st.session_state.map_zoom = 15
+                    st.session_state.map_zoom = zoom_l
                     df_filtered = df_display
                     highlight_locale = selected_local
         else:
@@ -254,7 +281,7 @@ def render():
             float(df_filtered["latitudine"].mean()),
             float(df_filtered["longitudine"].mean())
         )
-        st.session_state.map_zoom = 12
+        st.session_state.map_zoom = 12 if comune_selected else zoom_l
 
     center_lat, center_lon = st.session_state.map_center
     zoom_level = st.session_state.map_zoom
@@ -265,8 +292,38 @@ def render():
 
         with col_map:
             with st.spinner("⏳ Caricamento mappa..."):
-                folium_map = build_map(df_filtered, center_lat, center_lon, H3_LAYER, zoom_level, highlight_locale)
-                st_folium(folium_map, width=1800, height=800, returned_objects=[])
+                if not df_filtered.empty:
+                    points_payload = tuple(
+                        (
+                            float(r["latitudine"]),
+                            float(r["longitudine"]),
+                            float(r.get("priority_score", 0)) if pd.notna(r.get("priority_score", 0)) else 0.0,
+                            int(r.get("priority", 0)) if pd.notna(r.get("priority", 0)) else 0,
+                            str(r.get("des_locale", "")),
+                            str(r.get("indirizzo", "")),
+                            str(r.get("GENERE_DISPLAY", "Altro")),
+                            float(r.get("events_total", 0)) if pd.notna(r.get("events_total", 0)) else 0.0,
+                        )
+                        for _, r in df_filtered.iterrows()
+                    )
+                else:
+                    points_payload = tuple()
+
+                geojson_mtime = os.path.getmtime(H3_LAYER) if os.path.exists(H3_LAYER) else 0.0
+                base_geojson_path = os.path.join(DATA_DIR, "geo", "seprag.geojson")
+                base_mtime = os.path.getmtime(base_geojson_path) if os.path.exists(base_geojson_path) else 0.0
+
+                html = _render_map_html_priority(
+                    points_payload,
+                    center_lat,
+                    center_lon,
+                    H3_LAYER,
+                    geojson_mtime,
+                    base_mtime,
+                    int(zoom_level),
+                    highlight_locale or "",
+                )
+                components.html(html, height=800)
 
         with col_stats:
             st.subheader("📊 Statistiche - ultimi 12 mesi")
@@ -305,6 +362,19 @@ def render():
                 st.warning("Colonna 'priority' non trovata nei dati.")
     else:
         with st.spinner("⏳ Caricamento mappa..."):
-            folium_map = build_map(df_filtered, center_lat, center_lon, H3_LAYER, zoom_level, highlight_locale)
-            st_folium(folium_map, width=1800, height=800, returned_objects=[])
+            points_payload = tuple()
+            geojson_mtime = os.path.getmtime(H3_LAYER) if os.path.exists(H3_LAYER) else 0.0
+            base_geojson_path = os.path.join(DATA_DIR, "geo", "seprag.geojson")
+            base_mtime = os.path.getmtime(base_geojson_path) if os.path.exists(base_geojson_path) else 0.0
+            html = _render_map_html_priority(
+                points_payload,
+                center_lat,
+                center_lon,
+                H3_LAYER,
+                geojson_mtime,
+                base_mtime,
+                int(zoom_level),
+                highlight_locale or "",
+            )
+            components.html(html, height=800)
 
