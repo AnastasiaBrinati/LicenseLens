@@ -11,6 +11,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # 4. Copia e installa dipendenze
+COPY config/config.yaml /config/config.yaml
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
