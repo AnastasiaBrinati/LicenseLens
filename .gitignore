@@ -6,6 +6,7 @@ utils/redshift
 .env
 dashboard-eventi.tar
 *.txt
+.DS_Store
 
 .streamlit
 
