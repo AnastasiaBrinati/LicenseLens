@@ -1,5 +1,6 @@
 data/
 config/
+openshift/
 utils/redshift
 
 .env

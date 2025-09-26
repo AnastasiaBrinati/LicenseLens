@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import os
 import plotly.express as px
-from fontTools.feaLib.ast import fea_keywords
 
 from utils.utilities import get_month_columns, load_locali_data
 import webbrowser
