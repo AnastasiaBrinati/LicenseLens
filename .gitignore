@@ -3,6 +3,7 @@ config/
 openshift/
 utils/redshift
 
+.DS_Store
 .env
 dashboard-eventi.tar
 *.txt
