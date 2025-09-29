@@ -1,16 +1,44 @@
+import datetime
 import streamlit as st
 import pandas as pd
 import os
 import plotly.express as px
-
+from utils.deep_search import check_event_exists
+import locale
 from utils.utilities import get_month_columns, load_locali_data
-import webbrowser
-from utils.sonar import perform_sonar_search
 from dotenv import load_dotenv
+
+import re
+
+def extract_links(text: str):
+    """
+    Estrae tutti i link (URL) da un testo.
+    Restituisce una lista di URL trovati.
+    """
+    url_pattern = r'(https?://[^\s]+)'
+    return re.findall(url_pattern, text)
+
+locale.setlocale(locale.LC_TIME, 'it_IT.UTF-8')
 
 load_dotenv()
 gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
 GENERI_PRIORITARI = [g.strip() for g in gen_prioritari_str.split(",") if g.strip()]
+
+@st.cache_data()
+def get_today_events(df_top, today):
+    print(today)
+    table_data = []
+    for _, row in df_top.iterrows():
+        result = check_event_exists(row.get("des_locale", ""), row.get("comune", ""), today)
+        table_data.append({
+            "Nome Locale": row.get("des_locale", ""),
+            "Evento Oggi": "✅ Sì" if result.get("exists") else "❌ No",
+            "Link": ", ".join(
+                [f"[{i+1}]({url})" for i, url in enumerate(result.get("evidence", []))]
+            ) if result.get("evidence") else "-"
+        })
+    return pd.DataFrame(table_data)
+
 
 def create_events_timeline_chart(df_row):
     month_columns = get_month_columns(df_row)
@@ -52,8 +80,7 @@ def create_events_timeline_chart(df_row):
         font_color='white' if st.get_option("theme.base") == "dark" else "black"
     )
 
-    st.plotly_chart(fig, use_container_width=True)
-
+    st.plotly_chart(fig, width=400)
 
 
 def render():
@@ -79,15 +106,12 @@ def render():
 
     # ------------------ Filtri ------------------
     if 'sede' in df.columns and 'comune' in df.columns:
-        # Prima riga: sede + comune
         col_f1, col_f2 = st.columns(2)
 
         with col_f1:
             sedi = sorted(df['sede'].dropna().unique().tolist())
-            # Trova 'Roma' in modo robusto (case/whitespace insensitive)
             roma_option = next((s for s in sedi if isinstance(s, str) and s.strip().lower() == 'roma'), None)
             default_selection = [roma_option] if roma_option else ([sedi[0]] if sedi else [])
-            # Imposta sessione solo se vuota o non coerente con le opzioni
             if (
                 'metrics_sedi_tab' not in st.session_state or
                 not st.session_state['metrics_sedi_tab'] or
@@ -109,11 +133,10 @@ def render():
             selected_comuni = st.multiselect(
                 "Seleziona comune (opzionale)",
                 options=comuni_options,
-                default=[],   # 🔹 vuoto = tutti i comuni
+                default=[],
                 key="metrics_comuni_tab"
             )
 
-        # Seconda riga: genere + locale
         col_f3, col_f4 = st.columns(2)
 
         with col_f3:
@@ -147,7 +170,6 @@ def render():
                 key="metrics_locali_tab"
             )
 
-        # Applica i filtri
         if selected_sedi:
             df = df[df['sede'].isin(selected_sedi)]
         else:
@@ -156,7 +178,6 @@ def render():
 
         if selected_comuni:
             df = df[df['comune'].isin(selected_comuni)]
-        # 🔹 altrimenti nessun filtro → tutti i comuni della sede
 
         if selected_genres:
             df = df[df['GENERE_CAT'].isin(selected_genres)]
@@ -172,13 +193,12 @@ def render():
         return
 
     # ------------------ Layout principale ------------------
-    col1, col2 = st.columns([2, 1])
+    col_left, col_right = st.columns([2, 1])  # left wider for tables
 
-    with col1:
-        # ------------------ Slider Top N locale ------------------
+    # ---------- LEFT COLUMN (Tables) ----------
+    with col_left:
         top_n = st.slider("Top N locali:", min_value=5, max_value=50, value=10, key="metrics_top_n")
 
-        # Assicura colonna TOTALE_EVENTI per tabella (fallback da events_total)
         if 'TOTALE_EVENTI' not in df.columns:
             if 'events_total' in df.columns:
                 try:
@@ -209,7 +229,6 @@ def render():
         }
         df_to_display = df_top[display_columns].rename(columns=column_mapping)
 
-        # ------------------ Tabella interattiva ------------------
         selected_row = st.dataframe(
             df_to_display,
             width="stretch",
@@ -218,65 +237,101 @@ def render():
             selection_mode="single-row",
             key="metrics_table"
         )
+        # ----------------- Eventi di oggi -----------------
+        st.subheader("📅 Eventi di oggi (Top N)")
+        today = datetime.datetime.now().strftime("%d %B %Y")  # Es: "26 Settembre"
+        today = today.capitalize()  # Iniziale maiuscola
 
-        # ------------------ Grafico timeline ------------------
+        if "df_today" not in st.session_state:
+            st.session_state.df_today = None
+
+        # Bottone ricerca eventi
+        st.markdown("""
+            <style>
+            div.stButton > button:first-child {
+                background: linear-gradient(90deg, #667eea, #764ba2);
+                color: white;
+                border: none;
+                border-radius: 12px;
+                padding: 0.8em 2em;
+                font-size: 1.1em;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                box-shadow: 0px 4px 12px rgba(0,0,0,0.2);
+            }
+            div.stButton > button:first-child:hover {
+                transform: translateY(-2px);
+                box-shadow: 0px 6px 16px rgba(0,0,0,0.25);
+                background: linear-gradient(90deg, #5a67d8, #6b46c1);
+            }
+            div.stButton > button:first-child:active {
+                transform: translateY(0px);
+                box-shadow: 0px 3px 8px rgba(0,0,0,0.2);
+            }
+            </style>
+        """, unsafe_allow_html=True)
+
+        if st.button("🔍 Cerca eventi di oggi", key="search_today_events"):
+            with st.spinner("Ricerca eventi in corso..."):
+                st.session_state.df_today = get_today_events(df_top, today)
+
+        # Mostra risultati come CARD
+        if st.session_state.df_today is not None and not st.session_state.df_today.empty:
+            for _, row in st.session_state.df_today.iterrows():
+                if row['Link'] and row['Link'].strip() != "-":
+                    st.markdown(f"""
+                    <div style="padding:16px; margin-bottom:12px; border-radius:12px; 
+                                box-shadow:0 2px 10px rgba(0,0,0,0.08); 
+                                background-color:#ffffff; border:1px solid #eee;">
+                        <div style="font-size:1.1em; font-weight:600; margin-bottom:6px; color:#222;">
+                            📍 {row['Nome Locale']}
+                        </div>
+                        <div style="color:#555; margin-bottom:10px;">
+                            🗓️ {today}
+                        </div>
+                        <div>
+                    """, unsafe_allow_html=True)
+
+                    # Uso della funzione extract_links
+                    links = extract_links(row['Link'])
+
+                    for i, link in enumerate(links):
+                        st.markdown(f"""
+                        <a href="{link.strip()}" target="_blank" 
+                           style="text-decoration:none; 
+                                  color:white; 
+                                  background:linear-gradient(90deg, #667eea, #764ba2); 
+                                  padding:6px 12px; 
+                                  border-radius:8px; 
+                                  font-weight:500;
+                                  font-size:0.9em;
+                                  margin-right:6px;
+                                  box-shadow:0px 2px 6px rgba(0,0,0,0.2); 
+                                  display:inline-block;">
+                            🔗 Link {i + 1}
+                        </a>
+                        """, unsafe_allow_html=True)
+
+                    st.markdown("</div></div>", unsafe_allow_html=True)
+
+        else:
+            st.info("Premi il pulsante per cercare eventi in programma oggi nei locali della Top N.")
+
+    # ---------- RIGHT COLUMN (Charts) ----------
+    with col_right:
         st.subheader("📈 Andamento Eventi Mensili")
-
         if selected_row.selection and len(selected_row.selection['rows']) > 0:
             selected_idx = selected_row.selection['rows'][0]
             selected_locale_data = df_top.iloc[[selected_idx]]
-
             locale_name = selected_locale_data.iloc[0].get('des_locale', f'Locale #{selected_idx + 1}')
             priority_score = selected_locale_data.iloc[0].get('priority_score', 'N/A')
-
             st.info(f"📍 **Locale selezionato:** {locale_name} | **Priority Score:** {priority_score}")
             create_events_timeline_chart(selected_locale_data)
-
-            # ----------------- Bottoni affiancati -----------------
-            col_b1, col_b2 = st.columns(2)
-
-            with col_b1:
-                button_key = f"deep_search_{selected_idx}"
-                research_file = "./data/deep/sonar.csv"
-                if st.button(f"🔍 Deep Research: {locale_name}", key=button_key):
-                    if os.path.exists(research_file):
-                        try:
-                            df_research = pd.read_csv(research_file)
-                        except Exception as e:
-                            st.error(f"Impossibile leggere {research_file}: {e}")
-                            df_research = pd.DataFrame(columns=['data_deep_search', 'nome_locale', 'descrizione'])
-                    else:
-                        df_research = pd.DataFrame(columns=['data_deep_search', 'nome_locale', 'descrizione'])
-
-                    existing_entry = df_research[df_research['nome_locale'] == locale_name]
-
-                    if not existing_entry.empty:
-                        descrizione = existing_entry.iloc[0]['descrizione']
-                        st.info(f"✅ Il locale **{locale_name}** è già stato ricercato.")
-                        st.markdown(f"**Descrizione trovata:**\n\n{descrizione}")
-                    else:
-                        with st.spinner(f"Ricerca in corso su Sonar per {locale_name}..."):
-                            try:
-                                result = perform_sonar_search(locale_name)
-                                st.markdown(f"**Descrizione deep search:**\n\n{result}")
-                            except Exception as e:
-                                st.error(f"Errore durante la ricerca Sonar: {str(e)}")
-
-            with col_b2:
-                google_url = f"https://www.google.com/search?q={locale_name.replace(' ', '+')}+eventi"
-                if st.button(f"🌐 Google Search: {locale_name}", key=f"google_{selected_idx}"):
-                    webbrowser.open(google_url)
-
         else:
-            st.info("👆 Seleziona una riga nella tabella sopra per visualizzare l'andamento degli eventi mensili")
+            st.info("👆 Seleziona una riga nella tab")
 
-    # ------------------ Colonna laterale ------------------
-    with col2:
-        import plotly.express as px
-        st.subheader("\n")
-        st.subheader("\n")
         st.subheader("Quota di locali per genere")
-
         if 'locale_genere' in df_top.columns:
             genre_counts_top = df_top['locale_genere'].value_counts()
             pie_data = pd.DataFrame({
@@ -309,6 +364,6 @@ def render():
                 plot_bgcolor='rgba(0,0,0,0)'
             )
 
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width=400)
         else:
             st.info("Colonna 'locale_genere' non disponibile")
