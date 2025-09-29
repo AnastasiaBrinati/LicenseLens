@@ -35,7 +35,7 @@ if st.session_state["authentication_status"]:
     active_tab = option_menu(
         menu_title=None,  # nessun titolo sopra le tab
         options=["Metriche", "Mappa Attività", "Mappa Priorità"],
-        icons=["bar-chart", "map", "map-fill"],  # icone opzionali
+        icons=["bar-chart-fill", "map", "map-fill"],  # icone opzionali
         menu_icon="cast",
         default_index=0,
         orientation="horizontal",
