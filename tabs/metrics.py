@@ -7,16 +7,18 @@ from utils.deep_search import check_event_exists
 import locale
 from utils.utilities import get_month_columns, load_locali_data
 from dotenv import load_dotenv
-
 import re
 
 def extract_links(text: str):
     """
-    Estrae tutti i link (URL) da un testo.
-    Restituisce una lista di URL trovati.
+    Estrae tutti i link (URL) da un testo evitando di inglobare parentesi o punteggiatura
+    che non fanno parte del link.
     """
-    url_pattern = r'(https?://[^\s]+)'
+    # Matcha http/https, poi prende caratteri validi per URL
+    # e si ferma prima di punteggiatura/chiusure non url-safe
+    url_pattern = r'https?://[^\s\)\]\}\>\\"\'<>]+'
     return re.findall(url_pattern, text)
+
 
 locale.setlocale(locale.LC_TIME, 'it_IT.UTF-8')
 
@@ -272,51 +274,56 @@ def render():
             </style>
         """, unsafe_allow_html=True)
 
-        if st.button("🔍 Cerca eventi di oggi", key="search_today_events"):
+        if st.button("🔍 Cerca eventi per oggi, domani e dopodomani", key="search_next_days_events"):
             with st.spinner("Ricerca eventi in corso..."):
-                st.session_state.df_today = get_today_events(df_top, today)
+                st.session_state.df_events_by_day = {}
+                for offset in range(3):  # 0 = oggi, 1 = domani, 2 = dopodomani
+                    day_date = datetime.datetime.now() + datetime.timedelta(days=offset)
+                    day_str = day_date.strftime("%d %B %Y").capitalize()
+                    st.session_state.df_events_by_day[day_str] = get_today_events(df_top, day_str)
 
-        # Mostra risultati come CARD
-        if st.session_state.df_today is not None and not st.session_state.df_today.empty:
-            for _, row in st.session_state.df_today.iterrows():
-                if row['Link'] and row['Link'].strip() != "-":
-                    st.markdown(f"""
-                    <div style="padding:16px; margin-bottom:12px; border-radius:12px; 
-                                box-shadow:0 2px 10px rgba(0,0,0,0.08); 
-                                background-color:#ffffff; border:1px solid #eee;">
-                        <div style="font-size:1.1em; font-weight:600; margin-bottom:6px; color:#222;">
-                            📍 {row['Nome Locale']}
-                        </div>
-                        <div style="color:#555; margin-bottom:10px;">
-                            🗓️ {today}
-                        </div>
-                        <div>
-                    """, unsafe_allow_html=True)
+        # Mostra risultati come CARD separati per giorno
+        if "df_events_by_day" in st.session_state and st.session_state.df_events_by_day:
+            for day, df_day in st.session_state.df_events_by_day.items():
+                st.markdown(f"---\n### 📅 Eventi per **{day}**", unsafe_allow_html=True)
 
-                    # Uso della funzione extract_links
-                    links = extract_links(row['Link'])
+                if df_day is not None and not df_day.empty:
+                    for _, row in df_day.iterrows():
+                        if row['Link'] and row['Link'].strip() != "-":
+                            st.markdown(f"""
+                            <div style="padding:16px; margin-bottom:12px; border-radius:12px; 
+                                        box-shadow:0 2px 10px rgba(0,0,0,0.08); 
+                                        background-color:#ffffff; border:1px solid #eee;">
+                                <div style="font-size:1.1em; font-weight:600; margin-bottom:6px; color:#222;">
+                                    📍 {row['Nome Locale']}
+                                </div>
+                                <div style="color:#555; margin-bottom:10px;">
+                                    🗓️ {day}
+                                </div>
+                                <div>
+                            """, unsafe_allow_html=True)
 
-                    for i, link in enumerate(links):
-                        st.markdown(f"""
-                        <a href="{link.strip()}" target="_blank" 
-                           style="text-decoration:none; 
-                                  color:white; 
-                                  background:linear-gradient(90deg, #667eea, #764ba2); 
-                                  padding:6px 12px; 
-                                  border-radius:8px; 
-                                  font-weight:500;
-                                  font-size:0.9em;
-                                  margin-right:6px;
-                                  box-shadow:0px 2px 6px rgba(0,0,0,0.2); 
-                                  display:inline-block;">
-                            🔗 Link {i + 1}
-                        </a>
-                        """, unsafe_allow_html=True)
+                            links = extract_links(row['Link'])
+                            for i, link in enumerate(links):
+                                st.markdown(f"""
+                                <a href="{link.strip()}" target="_blank" 
+                                   style="text-decoration:none; 
+                                          color:white; 
+                                          background:linear-gradient(90deg, #667eea, #764ba2); 
+                                          padding:6px 12px; 
+                                          border-radius:8px; 
+                                          font-weight:500;
+                                          font-size:0.9em;
+                                          margin-right:6px;
+                                          box-shadow:0px 2px 6px rgba(0,0,0,0.2); 
+                                          display:inline-block;">
+                                    🔗 Link {i + 1}
+                                </a>
+                                """, unsafe_allow_html=True)
 
-                    st.markdown("</div></div>", unsafe_allow_html=True)
-
-        else:
-            st.info("Premi il pulsante per cercare eventi in programma oggi nei locali della Top N.")
+                            st.markdown("</div></div>", unsafe_allow_html=True)
+                else:
+                    st.info(f"Nessun evento trovato per **{day}**.")
 
     # ---------- RIGHT COLUMN (Charts) ----------
     with col_right:

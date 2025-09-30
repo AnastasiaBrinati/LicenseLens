@@ -38,12 +38,12 @@ def check_event_exists(venue: str, city: str, event_date: str):
 
     # --- 2) Prompt per Gemini
     system_rules = f"""
-    Sei un verificatore eventi. Decidi se esiste un evento esattamente nella data/città richieste.
-    Rispondi "si" solo se almeno una delle fonti fornite indica chiaramente che l'evento esiste in data {event_date} a {city}.
-    Se la data non coincide esattamente, rispondi "no".
-    Usa SOLO gli URL forniti.
-    Output SOLO in JSON:
-    {{"exists": true|false, "confidence": 0..1, "evidence": ["url1","url2"...]}}
+            Sei un verificatore eventi. Decidi se esiste un evento esattamente nella data cercata e nella città richieste.
+            Rispondi "si" solo se almeno una delle fonti fornite indica chiaramente che l'evento esiste in data {event_date} a {city}.
+            Se la data non coincide esattamente, rispondi "no".
+            Usa SOLO gli URL forniti.
+            Output SOLO in JSON:
+            {{"exists": true|false, "confidence": 0..1, "evidence": ["url1","url2"...]}}
     """
     user_payload_text = (
         system_rules
@@ -59,7 +59,6 @@ def check_event_exists(venue: str, city: str, event_date: str):
     }
 
     try:
-        time.sleep(15)
         r = requests.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}",
             json=payload,
