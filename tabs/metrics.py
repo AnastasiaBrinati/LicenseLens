@@ -4,7 +4,6 @@ import pandas as pd
 import os
 import plotly.express as px
 from utils.deep_search import check_event_exists
-import locale
 from utils.utilities import get_month_columns, load_locali_data
 from dotenv import load_dotenv
 import re
@@ -18,9 +17,6 @@ def extract_links(text: str):
     # e si ferma prima di punteggiatura/chiusure non url-safe
     url_pattern = r'https?://[^\s\)\]\}\>\\"\'<>]+'
     return re.findall(url_pattern, text)
-
-
-locale.setlocale(locale.LC_TIME, 'it_IT.UTF-8')
 
 load_dotenv()
 gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
@@ -239,15 +235,22 @@ def render():
             selection_mode="single-row",
             key="metrics_table"
         )
-        # ----------------- Eventi di oggi -----------------
-        st.subheader("📅 Eventi di oggi (Top N)")
-        today = datetime.datetime.now().strftime("%d %B %Y")  # Es: "26 Settembre"
-        today = today.capitalize()  # Iniziale maiuscola
+        # ----------------- Eventi per date selezionate -----------------
 
-        if "df_today" not in st.session_state:
-            st.session_state.df_today = None
+        # Dizionario mesi in italiano
+        mesi = {
+            1: "gennaio", 2: "febbraio", 3: "marzo", 4: "aprile",
+            5: "maggio", 6: "giugno", 7: "luglio", 8: "agosto",
+            9: "settembre", 10: "ottobre", 11: "novembre", 12: "dicembre"
+        }
 
-        # Bottone ricerca eventi
+        st.subheader("📅 Eventi per date selezionate (Top N)")
+        today_dt = datetime.datetime.now().date()
+
+        if "df_events_by_day" not in st.session_state:
+            st.session_state.df_events_by_day = {}
+
+        # Stile pulsante
         st.markdown("""
             <style>
             div.stButton > button:first-child {
@@ -274,16 +277,39 @@ def render():
             </style>
         """, unsafe_allow_html=True)
 
-        if st.button("🔍 Cerca eventi per oggi, domani e dopodomani", key="search_next_days_events"):
+        # Calendario: singolo giorno o intervallo
+        date_selection = st.date_input(
+            "Seleziona giorno o intervallo",
+            value=(today_dt, today_dt),
+            min_value=today_dt - datetime.timedelta(days=0),
+            max_value=today_dt + datetime.timedelta(days=365),
+            key="events_date_selection"
+        )
+
+        if st.button("🔍 Cerca eventi per le date selezionate", key="search_selected_days_events"):
             with st.spinner("Ricerca eventi in corso..."):
                 st.session_state.df_events_by_day = {}
-                for offset in range(3):  # 0 = oggi, 1 = domani, 2 = dopodomani
-                    day_date = datetime.datetime.now() + datetime.timedelta(days=offset)
-                    day_str = day_date.strftime("%d %B %Y").capitalize()
+
+                # Normalizza la selezione in lista di date
+                if isinstance(date_selection, tuple) and len(date_selection) == 2:
+                    start_date, end_date = date_selection
+                    if start_date and end_date and start_date <= end_date:
+                        delta_days = (end_date - start_date).days
+                        selected_dates = [start_date + datetime.timedelta(days=i) for i in range(delta_days + 1)]
+                    else:
+                        selected_dates = [today_dt]
+                elif hasattr(date_selection, "strftime"):
+                    selected_dates = [date_selection]
+                else:
+                    selected_dates = [today_dt]
+
+                for d in selected_dates:
+                    # Costruzione data in italiano
+                    day_str = f"{d.day:02d} {mesi[d.month]} {d.year}"
                     st.session_state.df_events_by_day[day_str] = get_today_events(df_top, day_str)
 
         # Mostra risultati come CARD separati per giorno
-        if "df_events_by_day" in st.session_state and st.session_state.df_events_by_day:
+        if st.session_state.df_events_by_day:
             for day, df_day in st.session_state.df_events_by_day.items():
                 st.markdown(f"---\n### 📅 Eventi per **{day}**", unsafe_allow_html=True)
 
@@ -358,7 +384,7 @@ def render():
 
             fig.update_traces(
                 textinfo='percent',
-                hovertemplate="<b>%{label}</b><br>Locali: %{value}<br>Percentuale: %{percent}<extra></extra>"
+                hovertemplate="<b>%{label}</b> Locali: %{value} Percentuale: %{percent}<extra></extra>"
             )
 
             fig.update_layout(

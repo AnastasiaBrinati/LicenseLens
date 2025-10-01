@@ -31,20 +31,26 @@ def check_event_exists(venue: str, city: str, event_date: str):
     items = [
         {"title": r.get("title",""), "snippet": r.get("snippet",""), "url": r.get("link","")}
         for r in search.get("organic", [])
-    ][:8]
+    ][:3]
 
     if not items:
         return {"exists": False, "confidence": 0.1, "evidence": []}
 
     # --- 2) Prompt per Gemini
     system_rules = f"""
-            Sei un verificatore eventi. Decidi se esiste un evento esattamente nella data cercata e nella città richieste.
-            Rispondi "si" solo se almeno una delle fonti fornite indica chiaramente che l'evento esiste in data {event_date} a {city}.
-            Se la data non coincide esattamente, rispondi "no".
-            Usa SOLO gli URL forniti.
-            Output SOLO in JSON:
-            {{"exists": true|false, "confidence": 0..1, "evidence": ["url1","url2"...]}}
+        Sei un verificatore eventi. Devi stabilire se esiste un evento esattamente nella data richiesta, presso il locale e nella città indicata.
+
+        Regole:
+        1. Rispondi '"exists": true' solo se almeno UNA delle fonti fornite conferma in modo chiaro e inequivocabile che l’evento si svolge nella data {event_date}, nella città {city} e nel locale {venue}.
+        2. Se la data, la città o il locale non coincidono esattamente (anche con differenze minime, es. altro locale simile o città vicina), rispondi '"exists": false'.
+        3. Non fare inferenze o supposizioni: usa esclusivamente le informazioni contenute negli URL forniti.
+        4. Usa solo pagine web ufficiali o pagine social del locale.
+        5. La risposta deve essere **solo in formato JSON**, senza testo aggiuntivo, con la seguente struttura:
+        "exists": true|false,
+        "confidence": 0..1,
+        "evidence": ["url1","url2", ... ]
     """
+
     user_payload_text = (
         system_rules
         + "\n\n"
@@ -59,10 +65,14 @@ def check_event_exists(venue: str, city: str, event_date: str):
     }
 
     try:
+        time.sleep(10)
         r = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}",
+            # gemini-pro-latest: bloccato ogni tanto  503 Server Error: Service Unavailable
+            # gemini-2.5-flash-lite-preview-09-2025
+            # gemini-2.5-flash-preview-09-2025 too many requests
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}",
             json=payload,
-            timeout=30
+            timeout=60
         )
         r.raise_for_status()
         data = r.json()
