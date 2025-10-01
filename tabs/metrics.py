@@ -22,18 +22,68 @@ load_dotenv()
 gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
 GENERI_PRIORITARI = [g.strip() for g in gen_prioritari_str.split(",") if g.strip()]
 
+# ==========================
+# 🎨 STILI COMPATTI (dark)
+# ==========================
+COMPACT_CSS = """
+<style>
+/* Card risultato compatta */
+.compact-card { 
+  border: 1px solid rgba(255,255,255,0.1); 
+  border-radius: 14px; 
+  padding: 14px; 
+  margin-bottom: 12px; 
+  background: linear-gradient(135deg, #1e293b, #334155);
+  color: #f1f5f9;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+}
+.compact-card .header { display:flex; align-items:center; gap:10px; margin-bottom:6px; }
+.compact-card .favicon { width:20px; height:20px; border-radius:4px; background:#475569; display:flex; align-items:center; justify-content:center; font-size:12px; }
+.compact-card .title { font-weight:650; font-size:0.98rem; line-height:1.1; margin:0; }
+.compact-card .meta { display:flex; align-items:center; gap:8px; color:#cbd5e1; font-size:0.86rem; margin-bottom:6px; flex-wrap:wrap; }
+.badge { padding:2px 8px; border-radius:999px; font-size:0.72rem; font-weight:600; letter-spacing:.02em; }
+.badge-ev { background:#0f766e; color:#ecfdf5; border:1px solid #14b8a6; }
+.domain { color:#e2e8f0; }
+.time-dot { width:6px; height:6px; background:#94a3b8; border-radius:999px; display:inline-block; }
+.compact-card .snippet { color:#f8fafc; font-size:0.9rem; margin:0; }
+.compact-card .actions { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
+.link-btn { text-decoration:none; padding:6px 12px; border-radius:8px; background:linear-gradient(90deg, #0ea5e9, #6366f1); color:white; font-size:.85rem; font-weight:600; display:inline-flex; gap:6px; align-items:center; box-shadow:0 2px 6px rgba(0,0,0,0.3); }
+.link-btn:hover { filter:brightness(1.1); }
+
+/* Wrapper giorno */
+.day-wrap { border-left:3px solid #6b46c1; padding-left:10px; margin:14px 0 8px; }
+.day-title { font-weight:700; font-size:1.0rem; margin:0 0 10px; }
+
+/* Card locale */
+.venue-card { border:1px dashed rgba(255,255,255,0.2); border-radius:12px; padding:10px; margin-bottom:10px; background:rgba(30,41,59,0.6); color:#f1f5f9; }
+.venue-head { display:flex; align-items:center; justify-content:space-between; }
+.venue-name { font-weight:700; }
+.venue-status { font-weight:600; }
+.status-yes { color:#34d399; }
+.status-no { color:#f87171; }
+
+/* Links inline & compatti */
+.links-wrap { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+.chip-link { text-decoration:none; padding:6px 10px; border-radius:8px; border:1px solid rgba(255,255,255,0.2); color:#e2e8f0; font-size:.85rem; display:inline-flex; align-items:center; gap:6px; background:rgba(15,23,42,0.5); }
+.chip-link:hover { background:rgba(15,23,42,0.7); }
+</style>
+"""
+
 @st.cache_data()
 def get_today_events(df_top, today):
     print(today)
     table_data = []
     for _, row in df_top.iterrows():
         result = check_event_exists(row.get("des_locale", ""), row.get("comune", ""), today)
+        # Supporto opzionale a metadati se la funzione li fornisce (title/snippet/time)
+        evidence_meta = result.get("evidence_meta") if isinstance(result, dict) else None
         table_data.append({
             "Nome Locale": row.get("des_locale", ""),
             "Evento Oggi": "✅ Sì" if result.get("exists") else "❌ No",
             "Link": ", ".join(
                 [f"[{i+1}]({url})" for i, url in enumerate(result.get("evidence", []))]
-            ) if result.get("evidence") else "-"
+            ) if result.get("evidence") else "-",
+            "EVIDENZE_META": evidence_meta if evidence_meta else None,
         })
     return pd.DataFrame(table_data)
 
@@ -103,6 +153,8 @@ def render():
         return
 
     # ------------------ Filtri ------------------
+    st.markdown(COMPACT_CSS, unsafe_allow_html=True)
+
     if 'sede' in df.columns and 'comune' in df.columns:
         col_f1, col_f2 = st.columns(2)
 
@@ -324,43 +376,62 @@ def render():
                     df_day = get_today_events(df_top, day_str)  # recupero eventi per il giorno
                     st.session_state.df_events_by_day[day_str] = df_day
 
-                    # ✅ Mostra subito i risultati di quel giorno
-                    st.markdown(f"---\n### 📅 Eventi per **{day_str}**", unsafe_allow_html=True)
+                    # ✅ Mostra subito i risultati di quel giorno (UI dark compatta)
+                    st.markdown(f"<div class='day-wrap'><div class='day-title'>📅 {day_str}</div></div>", unsafe_allow_html=True)
                     if df_day is not None and not df_day.empty:
                         for _, row in df_day.iterrows():
-                            if row['Link'] and row['Link'].strip() != "-":
-                                st.markdown(f"""
-                                <div style="padding:16px; margin-bottom:12px; border-radius:12px; 
-                                            box-shadow:0 2px 10px rgba(0,0,0,0.08); 
-                                            background-color:#ffffff; border:1px solid #eee;">
-                                    <div style="font-size:1.1em; font-weight:600; margin-bottom:6px; color:#222;">
-                                        📍 {row['Nome Locale']}
+                            has_links = row['Link'] and row['Link'].strip() != "-"
+                            if has_links:
+                                st.markdown(
+                                    f"""
+                                    <div class=\"venue-card\">
+                                      <div class=\"venue-head\">
+                                        <div class=\"venue-name\">📍 {row['Nome Locale']}</div>
+                                        <div class=\"venue-status status-yes\">Evento trovato</div>
+                                      </div>
                                     </div>
-                                    <div style="color:#555; margin-bottom:10px;">
-                                        🗓️ {day_str}
+                                    """,
+                                    unsafe_allow_html=True
+                                )
+
+                                # 1) se ci sono metadati delle evidenze, mostra card compatte
+                                evidenze_meta = row.get('EVIDENZE_META') if isinstance(row, pd.Series) else None
+                                if evidenze_meta:
+                                    for ev in evidenze_meta:
+                                        title = ev.get('title') or 'Evento trovato'
+                                        url = ev.get('url') or ''
+                                        snippet = ev.get('snippet') or ''
+                                        time_info = ev.get('time') or ''
+                                        domain = re.sub(r"^https?://", "", url).split("/")[0] if url else ''
+                                        st.markdown(
+                                            f"""
+                                            <div class=\"compact-card\">
+                                              <div class=\"header\"><div class=\"favicon\">🌐</div><div class=\"title\">{title}</div></div>
+                                              <div class=\"meta\"><span class=\"badge badge-ev\">Evidenza</span><span class=\"domain\">{domain}</span><span class=\"time-dot\"></span><span>{time_info}</span></div>
+                                              <p class=\"snippet\">{snippet}</p>
+                                              <div class=\"actions\"><a class=\"link-btn\" href=\"{url}\" target=\"_blank\">🔗 Link</a></div>
+                                            </div>
+                                            """,
+                                            unsafe_allow_html=True
+                                        )
+                                else:
+                                    # 2) altrimenti mostra i link in linea come chip compatti
+                                    links = extract_links(row['Link'])
+                                    if links:
+                                        chips = "".join([f"<a href='{l.strip()}' target='_blank' class='chip-link'>🔗 Link {i+1}</a>" for i, l in enumerate(links)])
+                                        st.markdown(f"<div class='links-wrap'>{chips}</div>", unsafe_allow_html=True)
+                            else:
+                                st.markdown(
+                                    f"""
+                                    <div class=\"venue-card\">
+                                      <div class=\"venue-head\">
+                                        <div class=\"venue-name\">📍 {row['Nome Locale']}</div>
+                                        <div class=\"venue-status status-no\">Nessun evento trovato</div>
+                                      </div>
                                     </div>
-                                    <div>
-                                """, unsafe_allow_html=True)
-
-                                links = extract_links(row['Link'])
-                                for i, link in enumerate(links):
-                                    st.markdown(f"""
-                                    <a href="{link.strip()}" target="_blank" 
-                                       style="text-decoration:none; 
-                                              color:white; 
-                                              background:linear-gradient(90deg, #667eea, #764ba2); 
-                                              padding:6px 12px; 
-                                              border-radius:8px; 
-                                              font-weight:500;
-                                              font-size:0.9em;
-                                              margin-right:6px;
-                                              box-shadow:0px 2px 6px rgba(0,0,0,0.2); 
-                                              display:inline-block;">
-                                        🔗 Link {i + 1}
-                                    </a>
-                                    """, unsafe_allow_html=True)
-
-                                st.markdown("</div></div>", unsafe_allow_html=True)
+                                    """,
+                                    unsafe_allow_html=True
+                                )
                     else:
                         st.info(f"Nessun evento trovato per **{day_str}**.")
 

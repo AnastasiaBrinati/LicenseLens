@@ -16,12 +16,16 @@ def check_event_exists(venue: str, city: str, event_date: str):
         resp = requests.post(
             "https://google.serper.dev/search",
             headers={"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"},
-            json={"q": q, "num": 8, "gl": "it", "hl": "it"},
-            timeout=20
+            json={"q": q, "num": 5, "gl": "it", "hl": "it"},
+            timeout=10
         )
         resp.raise_for_status()
         try:
             search = resp.json()
+            # 💡 JSON PRINT:
+            print("\n--- Serper JSON Output ---\n")
+            print(json.dumps(search, indent=2, ensure_ascii=False))
+            print("\n--------------------------\n")
         except ValueError as e:  # invalid JSON
             return {"exists": False, "confidence": 0.0, "evidence": [], "error": f"Invalid JSON: {e}"}
     except requests.RequestException as e:
