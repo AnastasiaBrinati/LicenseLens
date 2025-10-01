@@ -72,7 +72,7 @@ def check_event_exists(venue: str, city: str, event_date: str):
             # gemini-2.5-flash-preview-09-2025 too many requests
             f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}",
             json=payload,
-            timeout=60
+            timeout=30
         )
         r.raise_for_status()
         data = r.json()

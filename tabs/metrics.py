@@ -235,9 +235,8 @@ def render():
             selection_mode="single-row",
             key="metrics_table"
         )
-        # ----------------- Eventi per date selezionate -----------------
 
-        # Dizionario mesi in italiano
+        # ----------------- Eventi per date selezionate -----------------
         mesi = {
             1: "gennaio", 2: "febbraio", 3: "marzo", 4: "aprile",
             5: "maggio", 6: "giugno", 7: "luglio", 8: "agosto",
@@ -250,7 +249,6 @@ def render():
         if "df_events_by_day" not in st.session_state:
             st.session_state.df_events_by_day = {}
 
-        # Stile pulsante
         st.markdown("""
             <style>
             div.stButton > button:first-child {
@@ -286,11 +284,29 @@ def render():
             key="events_date_selection"
         )
 
-        if st.button("🔍 Cerca eventi per le date selezionate", key="search_selected_days_events"):
+        # --- BLOCCO CONTROLLO INTERVALLO ---
+        block_search = False
+        if isinstance(date_selection, tuple) and len(date_selection) == 2:
+            start_date, end_date = date_selection
+            if start_date and end_date and start_date <= end_date:
+                delta_days = (end_date - start_date).days
+                if delta_days > 6:  # oltre 7 giorni
+                    block_search = True
+        else:
+            delta_days = 0
+
+        if block_search:
+            st.warning("⚠️ Puoi selezionare al massimo 7 giorni consecutivi.")
+            search_disabled = True
+        else:
+            search_disabled = False
+
+        if st.button("🔍 Cerca eventi per le date selezionate", key="search_selected_days_events",
+                     disabled=search_disabled):
             with st.spinner("Ricerca eventi in corso..."):
                 st.session_state.df_events_by_day = {}
+                selected_dates = []
 
-                # Normalizza la selezione in lista di date
                 if isinstance(date_selection, tuple) and len(date_selection) == 2:
                     start_date, end_date = date_selection
                     if start_date and end_date and start_date <= end_date:
@@ -304,52 +320,49 @@ def render():
                     selected_dates = [today_dt]
 
                 for d in selected_dates:
-                    # Costruzione data in italiano
                     day_str = f"{d.day:02d} {mesi[d.month]} {d.year}"
-                    st.session_state.df_events_by_day[day_str] = get_today_events(df_top, day_str)
+                    df_day = get_today_events(df_top, day_str)  # recupero eventi per il giorno
+                    st.session_state.df_events_by_day[day_str] = df_day
 
-        # Mostra risultati come CARD separati per giorno
-        if st.session_state.df_events_by_day:
-            for day, df_day in st.session_state.df_events_by_day.items():
-                st.markdown(f"---\n### 📅 Eventi per **{day}**", unsafe_allow_html=True)
-
-                if df_day is not None and not df_day.empty:
-                    for _, row in df_day.iterrows():
-                        if row['Link'] and row['Link'].strip() != "-":
-                            st.markdown(f"""
-                            <div style="padding:16px; margin-bottom:12px; border-radius:12px; 
-                                        box-shadow:0 2px 10px rgba(0,0,0,0.08); 
-                                        background-color:#ffffff; border:1px solid #eee;">
-                                <div style="font-size:1.1em; font-weight:600; margin-bottom:6px; color:#222;">
-                                    📍 {row['Nome Locale']}
-                                </div>
-                                <div style="color:#555; margin-bottom:10px;">
-                                    🗓️ {day}
-                                </div>
-                                <div>
-                            """, unsafe_allow_html=True)
-
-                            links = extract_links(row['Link'])
-                            for i, link in enumerate(links):
+                    # ✅ Mostra subito i risultati di quel giorno
+                    st.markdown(f"---\n### 📅 Eventi per **{day_str}**", unsafe_allow_html=True)
+                    if df_day is not None and not df_day.empty:
+                        for _, row in df_day.iterrows():
+                            if row['Link'] and row['Link'].strip() != "-":
                                 st.markdown(f"""
-                                <a href="{link.strip()}" target="_blank" 
-                                   style="text-decoration:none; 
-                                          color:white; 
-                                          background:linear-gradient(90deg, #667eea, #764ba2); 
-                                          padding:6px 12px; 
-                                          border-radius:8px; 
-                                          font-weight:500;
-                                          font-size:0.9em;
-                                          margin-right:6px;
-                                          box-shadow:0px 2px 6px rgba(0,0,0,0.2); 
-                                          display:inline-block;">
-                                    🔗 Link {i + 1}
-                                </a>
+                                <div style="padding:16px; margin-bottom:12px; border-radius:12px; 
+                                            box-shadow:0 2px 10px rgba(0,0,0,0.08); 
+                                            background-color:#ffffff; border:1px solid #eee;">
+                                    <div style="font-size:1.1em; font-weight:600; margin-bottom:6px; color:#222;">
+                                        📍 {row['Nome Locale']}
+                                    </div>
+                                    <div style="color:#555; margin-bottom:10px;">
+                                        🗓️ {day_str}
+                                    </div>
+                                    <div>
                                 """, unsafe_allow_html=True)
 
-                            st.markdown("</div></div>", unsafe_allow_html=True)
-                else:
-                    st.info(f"Nessun evento trovato per **{day}**.")
+                                links = extract_links(row['Link'])
+                                for i, link in enumerate(links):
+                                    st.markdown(f"""
+                                    <a href="{link.strip()}" target="_blank" 
+                                       style="text-decoration:none; 
+                                              color:white; 
+                                              background:linear-gradient(90deg, #667eea, #764ba2); 
+                                              padding:6px 12px; 
+                                              border-radius:8px; 
+                                              font-weight:500;
+                                              font-size:0.9em;
+                                              margin-right:6px;
+                                              box-shadow:0px 2px 6px rgba(0,0,0,0.2); 
+                                              display:inline-block;">
+                                        🔗 Link {i + 1}
+                                    </a>
+                                    """, unsafe_allow_html=True)
+
+                                st.markdown("</div></div>", unsafe_allow_html=True)
+                    else:
+                        st.info(f"Nessun evento trovato per **{day_str}**.")
 
     # ---------- RIGHT COLUMN (Charts) ----------
     with col_right:
