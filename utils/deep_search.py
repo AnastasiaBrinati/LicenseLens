@@ -1,35 +1,44 @@
-import os, requests, json
-from dotenv import load_dotenv
+import os
+import requests
+import json
 import time
+import logging
+from dotenv import load_dotenv
 
 load_dotenv()
-SERPER_API_KEY = os.environ["SERPER_API_KEY"]
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
+SERPER_API_KEY = os.environ.get("SERPER_API_KEY")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+
+logger.info("Modulo di verifica eventi inizializzato")
 
 def check_event_exists(venue: str, city: str, event_date: str):
-
     q = f"{venue} {city} eventi {event_date}"
-    print(q)
+    logger.info(f"Eseguo query evento: {q}")
 
     # --- 1) Ricerca su Google via Serpenter
     try:
+        logger.info("Richiesta a Serper API")
         resp = requests.post(
             "https://google.serper.dev/search",
             headers={"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"},
             json={"q": q, "num": 5, "gl": "it", "hl": "it"},
-            timeout=10
+            timeout=30
         )
         resp.raise_for_status()
+
         try:
             search = resp.json()
-            # 💡 JSON PRINT:
-            print("\n--- Serper JSON Output ---\n")
-            print(json.dumps(search, indent=2, ensure_ascii=False))
-            print("\n--------------------------\n")
-        except ValueError as e:  # invalid JSON
+            logger.debug(f"Risposta Serper: {json.dumps(search, indent=2, ensure_ascii=False)}")
+        except ValueError as e:
+            logger.error(f"JSON non valido da Serper: {e}")
             return {"exists": False, "confidence": 0.0, "evidence": [], "error": f"Invalid JSON: {e}"}
+
     except requests.RequestException as e:
-        print(f"exception ricerca serpenter {e}")
+        logger.error(f"Errore richiesta Serper: {e}")
         return {"exists": False, "confidence": 0.0, "evidence": [], "error": str(e)}
 
     items = [
@@ -37,10 +46,14 @@ def check_event_exists(venue: str, city: str, event_date: str):
         for r in search.get("organic", [])
     ][:3]
 
+    logger.info(f"Trovati {len(items)} risultati organici da Serper")
+
     if not items:
+        logger.warning("Nessun risultato trovato da Serper")
         return {"exists": False, "confidence": 0.1, "evidence": []}
 
     # --- 2) Prompt per Gemini
+    logger.info("Preparazione payload per Gemini API")
     system_rules = f"""
         Sei un verificatore eventi. Devi stabilire se esiste un evento esattamente nella data richiesta, presso il locale e nella città indicata.
 
@@ -69,19 +82,22 @@ def check_event_exists(venue: str, city: str, event_date: str):
     }
 
     try:
-        time.sleep(10)
+        logger.info("Invio richiesta a Gemini API")
+        time.sleep(10)  # throttling
         r = requests.post(
-            # gemini-pro-latest: bloccato ogni tanto  503 Server Error: Service Unavailable
-            # gemini-2.5-flash-lite-preview-09-2025
-            # gemini-2.5-flash-preview-09-2025 too many requests
             f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}",
             json=payload,
             timeout=30
         )
         r.raise_for_status()
+
         data = r.json()
+        logger.debug(f"Risposta Gemini: {json.dumps(data, indent=2, ensure_ascii=False)}")
+
         text = data["candidates"][0]["content"]["parts"][0]["text"]
+        logger.info("Risposta Gemini ottenuta correttamente")
         return json.loads(text)
+
     except Exception as e:
-        print(f"exception ricerca gemini {e}")
+        logger.exception(f"Errore richiesta Gemini: {e}")
         return {"exists": False, "confidence": 0.0, "evidence": [], "error": str(e)}

@@ -1,15 +1,21 @@
 import streamlit as st
 import pandas as pd
-import folium, os
-from os.path import getmtime
-import math
-from typing import List, Tuple
+import folium, os, logging
+from typing import Tuple
 import streamlit.components.v1 as components
 import plotly.express as px
-from branca.element import Template, MacroElement
-from streamlit_folium import st_folium
-from utils.utilities import fmt, load_csv_city, list_available_cities, load_geojson
+from utils.persistence import load_csv_city, list_available_cities, load_geojson
+from utils.utilities import fmt
 from dotenv import load_dotenv
+
+# ===================== Config logging =====================
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler()]
+)
+
+logger = logging.getLogger(__name__)
 
 # ===================== Config =====================
 load_dotenv()
@@ -20,8 +26,11 @@ GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.s
 ROMA_LAT, ROMA_LON = float(os.getenv("ROMA_LAT", 0)), float(os.getenv("ROMA_LON", 0))
 zoom_l = 8
 
+logger.info(f"Configurazione iniziale: DATA_DIR={DATA_DIR}, GENERI_PRIORITARI={GENERI_PRIORITARI}")
+
 # ===================== Map builder =====================
 def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=zoom_l, highlight_locale=None):
+    logger.info(f"build_map: centro=({center_lat},{center_lon}), zoom={zoom_level}, punti={len(df_filtered)}")
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=zoom_level,
@@ -29,87 +38,72 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=zoo
         prefer_canvas=True
     )
 
-    # Layer base
-    geojson_base = load_geojson()
-    if geojson_base:
-        folium.GeoJson(
-            geojson_base,
-            name="Confini Base",
-            style_function=lambda x: {
-                "fillColor": "none",
-                "color": "#333333",
-                "weight": 2,
-                "fillOpacity": 0,
-            }
-        ).add_to(m)
-
-    # Layer H3
-    layer = load_geojson(geojson_layer)
-    if layer is not None:
-        folium.GeoJson(
-            layer,
-            name="Livelli Attività",
-            style_function=lambda feature: {
-                 "color": feature["properties"].get("color", "#e0e0e0"),
-                 "weight": 2,
-                 "fill": True,
-                 "fillColor": feature["properties"].get("color", "#e0e0e0"),
-                 "fillOpacity": 0.4,
-            },
-        ).add_to(m)
-
-    # Punti filtrati
-    if df_filtered is not None and not df_filtered.empty:
-        for _, r in df_filtered.iterrows():
-            lat, lon = float(r["latitudine"]), float(r["longitudine"])
-            fascia = int(r.get("fascia_cell", 3))
-            popup_html = folium.Popup(
-                f"<b>{r.get('des_locale', 'Senza nome')}</b><br>"
-                f"Indirizzo: {r['indirizzo']}<br>"
-                f"Genere: {r.get('locale_genere', 'Altro')}<br>"
-                f"Eventi totali (12 mesi): {fmt(r.get('events_total',0),0)}<br>"
-                f"Fascia: {fascia}",
-                max_width=200,
-                show=(highlight_locale == r.get("des_locale"))
-            )
-            folium.CircleMarker(
-                [lat, lon],
-                radius=5,
-                color=os.getenv('FASCIA_COLOR_' + str(fascia), "#d73027"),
-                weight=2,
-                fill=True,
-                fill_color=os.getenv('FASCIA_COLOR_' + str(fascia), "#d73027"),
-                fill_opacity=0.8,
-                popup=popup_html
+    try:
+        geojson_base = load_geojson()
+        if geojson_base:
+            folium.GeoJson(
+                geojson_base,
+                name="Confini Base",
+                style_function=lambda x: {
+                    "fillColor": "none",
+                    "color": "#333333",
+                    "weight": 2,
+                    "fillOpacity": 0,
+                }
             ).add_to(m)
+        logger.info("GeoJson base caricato con successo.")
+    except Exception as e:
+        logger.error(f"Errore caricamento GeoJson base: {e}")
 
-    # ---------------------- Legenda ----------------------
-    template = """
-    {% macro html(this, kwargs) %}
-    <div style="
-        position: fixed; 
-        bottom: 50px; left: 50px; width: 180px; height: 120px; 
-        z-index:9999; 
-        background-color:white;
-        border:2px solid grey;
-        border-radius:5px;
-        padding: 10px;
-        font-size:14px;
-        color: black;
-    ">
-    <b>Legenda Fasce Attività</b><br>
-    <i class="fa fa-circle" style="color:#d73027"></i> Alta attività<br>
-    <i class="fa fa-circle" style="color:#fc8d59"></i> Media attività<br>
-    <i class="fa fa-circle" style="color:#4575b4"></i> Bassa attività
-    </div>
-    {% endmacro %}
-    """
-    macro = MacroElement()
-    macro._template = Template(template)
-    m.get_root().add_child(macro)
+    try:
+        layer = load_geojson(geojson_layer)
+        if layer is not None:
+            folium.GeoJson(
+                layer,
+                name="Livelli Attività",
+                style_function=lambda feature: {
+                     "color": feature["properties"].get("color", "#e0e0e0"),
+                     "weight": 2,
+                     "fill": True,
+                     "fillColor": feature["properties"].get("color", "#e0e0e0"),
+                     "fillOpacity": 0.4,
+                },
+            ).add_to(m)
+        logger.info("GeoJson layer H3 caricato con successo.")
+    except Exception as e:
+        logger.error(f"Errore caricamento GeoJson H3 layer: {e}")
+
+    if df_filtered is not None and not df_filtered.empty:
+        logger.info(f"Aggiunta di {len(df_filtered)} punti sulla mappa.")
+        for _, r in df_filtered.iterrows():
+            try:
+                lat, lon = float(r["latitudine"]), float(r["longitudine"])
+                fascia = int(r.get("fascia_cell", 3))
+                popup_html = folium.Popup(
+                    f"<b>{r.get('des_locale', 'Senza nome')}</b><br>"
+                    f"Indirizzo: {r['indirizzo']}<br>"
+                    f"Genere: {r.get('locale_genere', 'Altro')}<br>"
+                    f"Eventi totali (12 mesi): {fmt(r.get('events_total',0),0)}<br>"
+                    f"Fascia: {fascia}",
+                    max_width=200,
+                    show=(highlight_locale == r.get("des_locale"))
+                )
+                folium.CircleMarker(
+                    [lat, lon],
+                    radius=5,
+                    color=os.getenv('FASCIA_COLOR_' + str(fascia), "#d73027"),
+                    weight=2,
+                    fill=True,
+                    fill_color=os.getenv('FASCIA_COLOR_' + str(fascia), "#d73027"),
+                    fill_opacity=0.8,
+                    popup=popup_html
+                ).add_to(m)
+            except Exception as e:
+                logger.warning(f"Errore aggiunta punto: {e}")
+    else:
+        logger.info("Nessun punto da aggiungere sulla mappa.")
 
     return m
-
 
 # ===================== Cached renderer =====================
 @st.cache_data(show_spinner=False)
@@ -123,6 +117,7 @@ def _render_map_html(
     zoom_level: int,
     highlight_locale: str,
 ) -> str:
+    logger.info(f"_render_map_html: punti={len(points_payload)}, centro=({center_lat},{center_lon}), zoom={zoom_level}")
     dummy_df = pd.DataFrame(points_payload, columns=[
         "latitudine", "longitudine", "fascia_cell", "des_locale", "indirizzo", "locale_genere", "events_total"
     ]) if points_payload else pd.DataFrame(columns=[
@@ -133,13 +128,11 @@ def _render_map_html(
 
 # ===================== Render =====================
 def render():
+    logger.info("Render della pagina avviato.")
     st.header("Zone per livello di attività")
     st.info(
         """
         Le aree della città sono state suddivise in **tre livelli di attività** sulla base del numero di eventi dichiarati negli ultimi 12 mesi. 
-
-        - I **punti** rappresentano i singoli locali.  
-        - I **poligoni colorati (celle)** suddividono la mappa in aree che vengono classificate in tre diversi livelli di attività: bassa, media e alta. 
         """
     )
 

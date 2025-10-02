@@ -3,132 +3,37 @@ import streamlit as st
 import pandas as pd
 import os
 import plotly.express as px
-from utils.deep_search import check_event_exists
-from utils.utilities import get_month_columns, load_locali_data
+import logging
+from logging.handlers import RotatingFileHandler
+from utils.persistence import load_locali_data
+from utils.utilities import create_events_timeline_chart, get_today_events, extract_links
 from dotenv import load_dotenv
 import re
 
-def extract_links(text: str):
-    """
-    Estrae tutti i link (URL) da un testo evitando di inglobare parentesi o punteggiatura
-    che non fanno parte del link.
-    """
-    # Matcha http/https, poi prende caratteri validi per URL
-    # e si ferma prima di punteggiatura/chiusure non url-safe
-    url_pattern = r'https?://[^\s\)\]\}\>\\"\'<>]+'
-    return re.findall(url_pattern, text)
+# ==========================
+# 🔐 Config Logging
+# ==========================
+LOG_FILE = "dashboard_metrics.log"
+
+# Rotazione log: max 5 MB, 3 backup
+handler = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
+formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s - %(message)s")
+handler.setFormatter(formatter)
+
+logger = logging.getLogger("metrics")
+logger.setLevel(logging.INFO)
+logger.addHandler(handler)
+
+# Per vedere anche in console/streamlit logs
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
 
 load_dotenv()
 gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
 GENERI_PRIORITARI = [g.strip() for g in gen_prioritari_str.split(",") if g.strip()]
 
-# ==========================
-# 🎨 STILI COMPATTI (dark)
-# ==========================
-COMPACT_CSS = """
-<style>
-/* Card risultato compatta */
-.compact-card { 
-  border: 1px solid rgba(255,255,255,0.1); 
-  border-radius: 14px; 
-  padding: 14px; 
-  margin-bottom: 12px; 
-  background: linear-gradient(135deg, #1e293b, #334155);
-  color: #f1f5f9;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
-}
-.compact-card .header { display:flex; align-items:center; gap:10px; margin-bottom:6px; }
-.compact-card .favicon { width:20px; height:20px; border-radius:4px; background:#475569; display:flex; align-items:center; justify-content:center; font-size:12px; }
-.compact-card .title { font-weight:650; font-size:0.98rem; line-height:1.1; margin:0; }
-.compact-card .meta { display:flex; align-items:center; gap:8px; color:#cbd5e1; font-size:0.86rem; margin-bottom:6px; flex-wrap:wrap; }
-.badge { padding:2px 8px; border-radius:999px; font-size:0.72rem; font-weight:600; letter-spacing:.02em; }
-.badge-ev { background:#0f766e; color:#ecfdf5; border:1px solid #14b8a6; }
-.domain { color:#e2e8f0; }
-.time-dot { width:6px; height:6px; background:#94a3b8; border-radius:999px; display:inline-block; }
-.compact-card .snippet { color:#f8fafc; font-size:0.9rem; margin:0; }
-.compact-card .actions { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
-.link-btn { text-decoration:none; padding:6px 12px; border-radius:8px; background:linear-gradient(90deg, #0ea5e9, #6366f1); color:white; font-size:.85rem; font-weight:600; display:inline-flex; gap:6px; align-items:center; box-shadow:0 2px 6px rgba(0,0,0,0.3); }
-.link-btn:hover { filter:brightness(1.1); }
-
-/* Wrapper giorno */
-.day-wrap { border-left:3px solid #6b46c1; padding-left:10px; margin:14px 0 8px; }
-.day-title { font-weight:700; font-size:1.0rem; margin:0 0 10px; }
-
-/* Card locale */
-.venue-card { border:1px dashed rgba(255,255,255,0.2); border-radius:12px; padding:10px; margin-bottom:10px; background:rgba(30,41,59,0.6); color:#f1f5f9; }
-.venue-head { display:flex; align-items:center; justify-content:space-between; }
-.venue-name { font-weight:700; }
-.venue-status { font-weight:600; }
-.status-yes { color:#34d399; }
-.status-no { color:#f87171; }
-
-/* Links inline & compatti */
-.links-wrap { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
-.chip-link { text-decoration:none; padding:6px 10px; border-radius:8px; border:1px solid rgba(255,255,255,0.2); color:#e2e8f0; font-size:.85rem; display:inline-flex; align-items:center; gap:6px; background:rgba(15,23,42,0.5); }
-.chip-link:hover { background:rgba(15,23,42,0.7); }
-</style>
-"""
-
-@st.cache_data()
-def get_today_events(df_top, today):
-    print(today)
-    table_data = []
-    for _, row in df_top.iterrows():
-        result = check_event_exists(row.get("des_locale", ""), row.get("comune", ""), today)
-        # Supporto opzionale a metadati se la funzione li fornisce (title/snippet/time)
-        evidence_meta = result.get("evidence_meta") if isinstance(result, dict) else None
-        table_data.append({
-            "Nome Locale": row.get("des_locale", ""),
-            "Evento Oggi": "✅ Sì" if result.get("exists") else "❌ No",
-            "Link": ", ".join(
-                [f"[{i+1}]({url})" for i, url in enumerate(result.get("evidence", []))]
-            ) if result.get("evidence") else "-",
-            "EVIDENZE_META": evidence_meta if evidence_meta else None,
-        })
-    return pd.DataFrame(table_data)
-
-
-def create_events_timeline_chart(df_row):
-    month_columns = get_month_columns(df_row)
-    row_data = df_row.iloc[0]
-
-    months, events = [], []
-    for month_col in month_columns:
-        months.append(month_col)
-        value = row_data.get(month_col, 0)
-        events.append(float(value) if pd.notna(value) else 0)
-
-    if not months:
-        st.info("Nessun dato mensile trovato")
-        return
-
-    df_plot = pd.DataFrame({"Mese": months, "Eventi": events})
-
-    fig = px.line(
-        df_plot,
-        x="Mese",
-        y="Eventi",
-        markers=True,
-        text="Eventi"
-    )
-
-    fig.update_traces(
-        line=dict(color="#1f77b4", width=2),
-        marker=dict(size=8),
-        textposition="top center"
-    )
-
-    fig.update_layout(
-        xaxis_title="Mese",
-        yaxis_title="Numero di Eventi",
-        margin=dict(l=40, r=40, t=40, b=40),
-        height=400,
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font_color='white' if st.get_option("theme.base") == "dark" else "black"
-    )
-
-    st.plotly_chart(fig, width=400)
+logger.info("Avvio modulo metrics. Generi prioritari: %s", GENERI_PRIORITARI)
 
 
 def render():
@@ -137,7 +42,7 @@ def render():
         """
         Il **livello di priorità** misura quanto un locale merita attenzione in base ai dati disponibili.  
         Viene calcolato combinando diversi fattori, tra cui:  
-        - l’andamento degli eventi dichiarati negli ultimi mesi,  
+        - l'andamento degli eventi dichiarati negli ultimi mesi,  
         - il confronto con locali simili nella stessa area,  
         - e altre caratteristiche storiche.  
 
@@ -145,85 +50,74 @@ def render():
         """
     )
 
+    logger.info("Caricamento dati locali...")
     with st.spinner("Caricamento dati..."):
         df = load_locali_data()
 
     if df.empty:
+        logger.error("Dati non caricati o DataFrame vuoto.")
         st.error("Impossibile caricare i dati. Verifica la presenza dei file CSV.")
         return
+    logger.info("Dati caricati: %d righe, %d colonne", df.shape[0], df.shape[1])
 
     # ------------------ Filtri ------------------
-    st.markdown(COMPACT_CSS, unsafe_allow_html=True)
+    try:
+        if 'sede' in df.columns and 'comune' in df.columns:
+            col_f1, col_f2 = st.columns(2)
 
-    if 'sede' in df.columns and 'comune' in df.columns:
-        col_f1, col_f2 = st.columns(2)
+            with col_f1:
+                sedi = sorted(df['sede'].dropna().unique().tolist())
+                logger.info("Sedi disponibili: %s", sedi)
+                roma_option = next((s for s in sedi if isinstance(s, str) and s.strip().lower() == 'roma'), None)
+                default_selection = [roma_option] if roma_option else ([sedi[0]] if sedi else [])
+                if (
+                        'metrics_sedi_tab' not in st.session_state or
+                        not st.session_state['metrics_sedi_tab'] or
+                        any(sel not in sedi for sel in st.session_state['metrics_sedi_tab'])
+                ):
+                    st.session_state['metrics_sedi_tab'] = default_selection
+                selected_sedi = st.multiselect("Seleziona sede", options=sedi, key="metrics_sedi_tab")
+                logger.info("Sedi selezionate: %s", selected_sedi)
 
-        with col_f1:
-            sedi = sorted(df['sede'].dropna().unique().tolist())
-            roma_option = next((s for s in sedi if isinstance(s, str) and s.strip().lower() == 'roma'), None)
-            default_selection = [roma_option] if roma_option else ([sedi[0]] if sedi else [])
-            if (
-                'metrics_sedi_tab' not in st.session_state or
-                not st.session_state['metrics_sedi_tab'] or
-                any(sel not in sedi for sel in st.session_state['metrics_sedi_tab'])
-            ):
-                st.session_state['metrics_sedi_tab'] = default_selection
-            selected_sedi = st.multiselect(
-                "Seleziona sede",
-                options=sedi,
-                key="metrics_sedi_tab"
-            )
-
-        with col_f2:
-            comuni_options = (
-                df[df['sede'].isin(selected_sedi)]['comune'].dropna().unique().tolist()
-                if selected_sedi else []
-            )
-            comuni_options = sorted(comuni_options)
-            selected_comuni = st.multiselect(
-                "Seleziona comune (opzionale)",
-                options=comuni_options,
-                default=[],
-                key="metrics_comuni_tab"
-            )
-
-        col_f3, col_f4 = st.columns(2)
-
-        with col_f3:
-            if 'locale_genere' in df.columns:
-                df['GENERE_CAT'] = df['locale_genere'].apply(
-                    lambda g: g if g in GENERI_PRIORITARI else "Altro"
+            with col_f2:
+                comuni_options = (
+                    df[df['sede'].isin(selected_sedi)]['comune'].dropna().unique().tolist()
+                    if selected_sedi else []
                 )
-                default_genres = [v for v in GENERI_PRIORITARI if v != 'Altro'][:3]
-                selected_genres = st.multiselect(
-                    "Generi:",
-                    options=df['GENERE_CAT'].unique(),
-                    default=default_genres,
-                    key="metrics_genres_tab"
-                )
-            else:
-                selected_genres = None
+                comuni_options = sorted(comuni_options)
+                selected_comuni = st.multiselect("Seleziona comune (opzionale)", options=comuni_options, default=[],
+                                                 key="metrics_comuni_tab")
+                logger.info("Comuni selezionati: %s", selected_comuni)
 
-        with col_f4:
-            df_for_locals = df[
-                (df['sede'].isin(selected_sedi)) &
-                (df['comune'].isin(selected_comuni) if selected_comuni else True)
-            ]
-            if selected_genres:
-                df_for_locals = df_for_locals[df_for_locals['GENERE_CAT'].isin(selected_genres)]
-            locali_options = df_for_locals['des_locale'].dropna().unique().tolist()
-            locali_options = sorted(locali_options)
-            selected_locali = st.multiselect(
-                "Seleziona locale (opzionale)",
-                options=locali_options,
-                default=[],
-                key="metrics_locali_tab"
-            )
+            col_f3, col_f4 = st.columns(2)
 
+            with col_f3:
+                if 'locale_genere' in df.columns:
+                    df['GENERE_CAT'] = df['locale_genere'].apply(lambda g: g if g in GENERI_PRIORITARI else "Altro")
+                    default_genres = [v for v in GENERI_PRIORITARI if v != 'Altro'][:3]
+                    selected_genres = st.multiselect("Generi:", options=df['GENERE_CAT'].unique(),
+                                                     default=default_genres, key="metrics_genres_tab")
+                    logger.info("Generi selezionati: %s", selected_genres)
+                else:
+                    selected_genres = None
+                    logger.warning("Colonna locale_genere non trovata nei dati.")
+
+            with col_f4:
+                df_for_locals = df[(df['sede'].isin(selected_sedi)) & (
+                    df['comune'].isin(selected_comuni) if selected_comuni else True)]
+                if selected_genres:
+                    df_for_locals = df_for_locals[df_for_locals['GENERE_CAT'].isin(selected_genres)]
+                locali_options = sorted(df_for_locals['des_locale'].dropna().unique().tolist())
+                selected_locali = st.multiselect("Seleziona locale (opzionale)", options=locali_options, default=[],
+                                                 key="metrics_locali_tab")
+                logger.info("Locali selezionati: %s", selected_locali)
+
+        # Filtri applicati al DataFrame
         if selected_sedi:
             df = df[df['sede'].isin(selected_sedi)]
         else:
             st.warning("Seleziona almeno una sede.")
+            logger.warning("Nessuna sede selezionata, stop render().")
             return
 
         if selected_comuni:
@@ -233,13 +127,20 @@ def render():
             df = df[df['GENERE_CAT'].isin(selected_genres)]
         elif 'locale_genere' in df.columns:
             st.warning("Seleziona almeno un locale_genere.")
+            logger.warning("Nessun genere selezionato, stop render().")
             return
 
         if selected_locali:
             df = df[df['des_locale'].isin(selected_locali)]
 
+    except Exception as e:
+        logger.exception("Errore durante l'applicazione dei filtri: %s", str(e))
+        st.error("Errore nell'applicazione dei filtri.")
+        return
+
     if df.empty:
         st.warning("Nessun dato disponibile con i filtri selezionati")
+        logger.warning("DataFrame vuoto dopo i filtri.")
         return
 
     # ------------------ Layout principale ------------------
@@ -248,20 +149,27 @@ def render():
     # ---------- LEFT COLUMN (Tables) ----------
     with col_left:
         top_n = st.slider("Top N locali:", min_value=5, max_value=50, value=10, key="metrics_top_n")
+        logger.info(f"Slider 'Top N locali' selezionato: {top_n}")
 
         if 'TOTALE_EVENTI' not in df.columns:
+            logger.warning("'TOTALE_EVENTI' non trovato in df.columns")
             if 'events_total' in df.columns:
                 try:
                     df['TOTALE_EVENTI'] = pd.to_numeric(df['events_total'], errors='coerce').fillna(0).astype(int)
-                except Exception:
+                    logger.info("Creata colonna 'TOTALE_EVENTI' a partire da 'events_total'")
+                except Exception as e:
+                    logger.error(f"Errore durante la conversione 'events_total' → 'TOTALE_EVENTI': {e}", exc_info=True)
                     df['TOTALE_EVENTI'] = 0
             else:
+                logger.error("Nessuna colonna 'events_total' trovata → imposto 'TOTALE_EVENTI' = 0")
                 df['TOTALE_EVENTI'] = 0
 
         if 'priority_score' in df.columns:
             df_top = df.nlargest(top_n, 'priority_score').reset_index(drop=True)
+            logger.info(f"Generata top {top_n} righe ordinate per 'priority_score'")
         else:
             st.error("Colonna 'priority_score' non trovata nei dati")
+            logger.error("Colonna 'priority_score' mancante: impossibile generare df_top")
             return
 
         display_columns = ["des_locale", "locale_genere", "indirizzo", "TOTALE_EVENTI",
@@ -301,6 +209,7 @@ def render():
         if "df_events_by_day" not in st.session_state:
             st.session_state.df_events_by_day = {}
 
+        # ============= CSS STYLING =============
         st.markdown("""
             <style>
             div.stButton > button:first-child {
@@ -324,6 +233,182 @@ def render():
                 transform: translateY(0px);
                 box-shadow: 0px 3px 8px rgba(0,0,0,0.2);
             }
+
+            /* Card styling per eventi */
+            .venue-card {
+                background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+                border: 1px solid #e0e7ff;
+                border-radius: 16px;
+                padding: 1.2rem;
+                margin-bottom: 1rem;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.07);
+                transition: all 0.3s ease;
+            }
+            .venue-card:hover {
+                transform: translateY(-3px);
+                box-shadow: 0 8px 16px rgba(102, 126, 234, 0.2);
+            }
+            .venue-head {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 1rem;
+                flex-wrap: wrap;
+                margin-bottom: 0.8rem;
+            }
+            .venue-name {
+                font-size: 1.1rem;
+                font-weight: 700;
+                color: var(--text-color);
+                flex: 1;
+            }
+            .venue-status {
+                padding: 0.3rem 0.8rem;
+                border-radius: 8px;
+                font-size: 0.75rem;
+                font-weight: 500;
+                letter-spacing: 0.3px;
+                border: 1px solid #10b981;
+                color: #10b981;
+                background: transparent;
+            }
+
+            /* Compact card per evidenze */
+            .compact-card {
+                background: white;
+                border: 1px solid #e2e8f0;
+                border-radius: 12px;
+                padding: 1rem;
+                margin: 0.8rem 0;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+                transition: all 0.3s ease;
+            }
+            .compact-card:hover {
+                box-shadow: 0 6px 12px rgba(0,0,0,0.1);
+                border-color: #cbd5e1;
+            }
+            .compact-card .header {
+                display: flex;
+                align-items: center;
+                gap: 0.6rem;
+                margin-bottom: 0.6rem;
+            }
+            .compact-card .favicon {
+                font-size: 1.2rem;
+            }
+            .compact-card .title {
+                font-weight: 600;
+                color: #0f172a;
+                font-size: 0.95rem;
+                line-height: 1.4;
+            }
+            .compact-card .meta {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                flex-wrap: wrap;
+                margin-bottom: 0.6rem;
+                font-size: 0.8rem;
+                color: #64748b;
+            }
+            .badge {
+                padding: 0.2rem 0.6rem;
+                border-radius: 6px;
+                font-weight: 600;
+                font-size: 0.75rem;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+            .badge-ev {
+                background: linear-gradient(135deg, #f59e0b, #d97706);
+                color: white;
+            }
+            .domain {
+                color: #475569;
+                font-weight: 500;
+            }
+            .time-dot {
+                width: 3px;
+                height: 3px;
+                background: #94a3b8;
+                border-radius: 50%;
+            }
+            .compact-card .snippet {
+                color: #475569;
+                font-size: 0.85rem;
+                line-height: 1.5;
+                margin: 0.6rem 0;
+                display: -webkit-box;
+                -webkit-line-clamp: 3;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+            }
+            .compact-card .actions {
+                margin-top: 0.8rem;
+                padding-top: 0.8rem;
+                border-top: 1px solid #f1f5f9;
+            }
+            .link-btn {
+                display: inline-block;
+                padding: 0.5rem 1.2rem;
+                background: linear-gradient(135deg, #3b82f6, #2563eb);
+                color: white;
+                text-decoration: none;
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 0.85rem;
+                transition: all 0.3s ease;
+                box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+            }
+            .link-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 10px rgba(59, 130, 246, 0.4);
+                background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            }
+
+            /* Links wrap - rimuovere perché i link vanno nelle card */
+            .venue-card .links-wrap {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+                padding-top: 0.8rem;
+                border-top: 1px solid rgba(102, 126, 234, 0.2);
+            }
+            .venue-card .chip-link {
+                display: inline-block;
+                padding: 0.5rem 1rem;
+                background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+                color: white;
+                text-decoration: none;
+                border-radius: 8px;
+                font-size: 0.85rem;
+                font-weight: 600;
+                transition: all 0.3s ease;
+                box-shadow: 0 2px 6px rgba(139, 92, 246, 0.3);
+            }
+            .venue-card .chip-link:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 10px rgba(139, 92, 246, 0.4);
+                background: linear-gradient(135deg, #7c3aed, #6d28d9);
+            }
+
+            /* Day wrap */
+            .day-wrap {
+                background: linear-gradient(45deg, #5b21b6, #5b21b6); /* viola chiaro sfumato */
+                border-radius: 16px;
+                margin-bottom: 1rem;
+            }
+            .day-title {
+                font-size: 1.1rem;
+                font-weight: 700;
+                color: var(--text-color);
+                padding: 0.8rem 1rem;
+                background: linear-gradient(135deg, rgba(248,250,252,0.6), rgba(241,245,249,0.6));
+                border-radius: 12px;
+                border-left: 4px solid #667eea;
+                margin-bottom: 1rem;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            }
             </style>
         """, unsafe_allow_html=True)
 
@@ -335,122 +420,157 @@ def render():
             max_value=today_dt + datetime.timedelta(days=365),
             key="events_date_selection"
         )
+        logger.info(f"Selezione date: {date_selection}")
 
         # --- BLOCCO CONTROLLO INTERVALLO ---
         block_search = False
         if isinstance(date_selection, tuple) and len(date_selection) == 2:
             start_date, end_date = date_selection
+            logger.info(f"Intervallo selezionato: start_date={start_date}, end_date={end_date}")
             if start_date and end_date and start_date <= end_date:
                 delta_days = (end_date - start_date).days
+                logger.info(f"Delta giorni calcolato: {delta_days}")
                 if delta_days > 6:  # oltre 7 giorni
                     block_search = True
+                    logger.warning(f"Intervallo troppo lungo: {delta_days + 1} giorni selezionati")
         else:
             delta_days = 0
+            logger.warning("date_selection non è un tuple di due date valide")
 
         if block_search:
             st.warning("⚠️ Puoi selezionare al massimo 7 giorni consecutivi.")
+            logger.info("Ricerca disabilitata: intervallo > 7 giorni")
             search_disabled = True
         else:
+            logger.info("Ricerca abilitata")
             search_disabled = False
 
         if st.button("🔍 Cerca eventi per le date selezionate", key="search_selected_days_events",
                      disabled=search_disabled):
+
+            logger.info("Bottone 'Cerca eventi' premuto")
+            logger.info(f"search_disabled={search_disabled}, date_selection={date_selection}")
+
             with st.spinner("Ricerca eventi in corso..."):
                 st.session_state.df_events_by_day = {}
                 selected_dates = []
 
                 if isinstance(date_selection, tuple) and len(date_selection) == 2:
                     start_date, end_date = date_selection
+                    logger.info(f"Intervallo selezionato: start_date={start_date}, end_date={end_date}")
                     if start_date and end_date and start_date <= end_date:
                         delta_days = (end_date - start_date).days
+                        logger.info(f"Delta giorni: {delta_days}")
                         selected_dates = [start_date + datetime.timedelta(days=i) for i in range(delta_days + 1)]
                     else:
+                        logger.warning("Intervallo date non valido, uso today_dt")
                         selected_dates = [today_dt]
                 elif hasattr(date_selection, "strftime"):
+                    logger.info(f"Singola data selezionata: {date_selection}")
                     selected_dates = [date_selection]
                 else:
+                    logger.warning("Formato date_selection inatteso, uso today_dt")
                     selected_dates = [today_dt]
 
-                for d in selected_dates:
+                logger.info(f"Date selezionate per ricerca: {selected_dates}")
+
+                # --- ciclo sui giorni con layout a 3 colonne ---
+                for i, d in enumerate(selected_dates):
                     day_str = f"{d.day:02d} {mesi[d.month]} {d.year}"
+                    logger.info(f"Ricerca eventi per giorno: {day_str}")
                     df_day = get_today_events(df_top, day_str)  # recupero eventi per il giorno
                     st.session_state.df_events_by_day[day_str] = df_day
 
-                    # ✅ Mostra subito i risultati di quel giorno (UI dark compatta)
-                    st.markdown(f"<div class='day-wrap'><div class='day-title'>📅 {day_str}</div></div>", unsafe_allow_html=True)
-                    if df_day is not None and not df_day.empty:
-                        for _, row in df_day.iterrows():
-                            has_links = row['Link'] and row['Link'].strip() != "-"
-                            if has_links:
-                                st.markdown(
-                                    f"""
-                                    <div class=\"venue-card\">
-                                      <div class=\"venue-head\">
-                                        <div class=\"venue-name\">📍 {row['Nome Locale']}</div>
-                                        <div class=\"venue-status status-yes\">Evento trovato</div>
-                                      </div>
-                                    </div>
-                                    """,
-                                    unsafe_allow_html=True
-                                )
+                    # nuova riga ogni 3 giorni
+                    if i % 3 == 0:
+                        cols = st.columns(3)
 
-                                # 1) se ci sono metadati delle evidenze, mostra card compatte
-                                evidenze_meta = row.get('EVIDENZE_META') if isinstance(row, pd.Series) else None
-                                if evidenze_meta:
-                                    for ev in evidenze_meta:
-                                        title = ev.get('title') or 'Evento trovato'
-                                        url = ev.get('url') or ''
-                                        snippet = ev.get('snippet') or ''
-                                        time_info = ev.get('time') or ''
-                                        domain = re.sub(r"^https?://", "", url).split("/")[0] if url else ''
-                                        st.markdown(
-                                            f"""
-                                            <div class=\"compact-card\">
-                                              <div class=\"header\"><div class=\"favicon\">🌐</div><div class=\"title\">{title}</div></div>
-                                              <div class=\"meta\"><span class=\"badge badge-ev\">Evidenza</span><span class=\"domain\">{domain}</span><span class=\"time-dot\"></span><span>{time_info}</span></div>
-                                              <p class=\"snippet\">{snippet}</p>
-                                              <div class=\"actions\"><a class=\"link-btn\" href=\"{url}\" target=\"_blank\">🔗 Link</a></div>
-                                            </div>
-                                            """,
-                                            unsafe_allow_html=True
-                                        )
-                                else:
-                                    # 2) altrimenti mostra i link in linea come chip compatti
+                    with cols[i % 3]:
+                        st.markdown(f"<div class='day-wrap'><div class='day-title'>📅 {day_str}</div></div>",
+                                    unsafe_allow_html=True)
+
+                        if df_day is not None and not df_day.empty:
+                            logger.info(f"Trovati {len(df_day)} eventi per {day_str}")
+                            for _, row in df_day.iterrows():
+                                has_links = row['Link'] and row['Link'].strip() != "-"
+                                logger.info(f"Locale: {row['Nome Locale']}, has_links={has_links}")
+
+                                if has_links:
                                     links = extract_links(row['Link'])
-                                    if links:
-                                        chips = "".join([f"<a href='{l.strip()}' target='_blank' class='chip-link'>🔗 Link {i+1}</a>" for i, l in enumerate(links)])
-                                        st.markdown(f"<div class='links-wrap'>{chips}</div>", unsafe_allow_html=True)
-                            else:
-                                st.markdown(
-                                    f"""
-                                    <div class=\"venue-card\">
-                                      <div class=\"venue-head\">
-                                        <div class=\"venue-name\">📍 {row['Nome Locale']}</div>
-                                        <div class=\"venue-status status-no\">Nessun evento trovato</div>
-                                      </div>
-                                    </div>
-                                    """,
-                                    unsafe_allow_html=True
-                                )
-                    else:
-                        st.info(f"Nessun evento trovato per **{day_str}**.")
+
+                                    # Rendering card con i link dentro
+                                    st.markdown(
+                                        f"""
+                                        <div class="venue-card">
+                                          <div class="venue-head">
+                                            <div class="venue-name">📍 {row['Nome Locale']}</div>
+                                          </div>
+                                          <div class="links-wrap">
+                                            {''.join([f"<a href='{l.strip()}' target='_blank' class='chip-link'>🔗 Link {i + 1}</a>" for i, l in enumerate(links)])}
+                                          </div>
+                                        </div>
+                                        """,
+                                        unsafe_allow_html=True
+                                    )
+
+                                    evidenze_meta = row.get('EVIDENZE_META') if isinstance(row, pd.Series) else None
+                                    if evidenze_meta:
+                                        for ev in evidenze_meta:
+                                            title = ev.get('title') or 'Evento trovato'
+                                            url = ev.get('url') or ''
+                                            snippet = ev.get('snippet') or ''
+                                            time_info = ev.get('time') or ''
+                                            domain = re.sub(r"^https?://", "", url).split("/")[0] if url else ''
+                                            st.markdown(
+                                                f"""
+                                                <div class="compact-card">
+                                                  <div class="header">
+                                                    <div class="favicon">🌐</div>
+                                                    <div class="title">{title}</div>
+                                                  </div>
+                                                  <div class="meta">
+                                                    <span class="badge badge-ev">Evidenza</span>
+                                                    <span class="domain">{domain}</span>
+                                                    <span class="time-dot"></span><span>{time_info}</span>
+                                                  </div>
+                                                  <p class="snippet">{snippet}</p>
+                                                  <div class="actions"><a class="link-btn" href="{url}" target="_blank">🔗 Link</a></div>
+                                                </div>
+                                                """,
+                                                unsafe_allow_html=True
+                                            )
 
     # ---------- RIGHT COLUMN (Charts) ----------
+    logger.info("Rendering colonna destra (Charts)")
+
     with col_right:
         st.subheader("📈 Andamento Eventi Mensili")
+        logger.info(
+            f"Selected row: {selected_row.selection if hasattr(selected_row, 'selection') else 'nessuna selezione'}")
+
         if selected_row.selection and len(selected_row.selection['rows']) > 0:
             selected_idx = selected_row.selection['rows'][0]
+            logger.info(f"Riga selezionata indice: {selected_idx}")
+
             selected_locale_data = df_top.iloc[[selected_idx]]
             locale_name = selected_locale_data.iloc[0].get('des_locale', f'Locale #{selected_idx + 1}')
             priority_score = selected_locale_data.iloc[0].get('priority_score', 'N/A')
+
+            logger.info(f"Locale selezionato: {locale_name}, Priority Score: {priority_score}")
             st.info(f"📍 **Locale selezionato:** {locale_name} | **Priority Score:** {priority_score}")
+
             create_events_timeline_chart(selected_locale_data)
+            logger.info("Chart andamento eventi mensili creato")
         else:
+            logger.info("Nessuna riga selezionata")
             st.info("👆 Seleziona una riga nella tab")
 
         st.subheader("Quota di locali per genere")
         if 'locale_genere' in df_top.columns:
+            logger.info("Colonna 'locale_genere' trovata, generazione grafico a torta")
             genre_counts_top = df_top['locale_genere'].value_counts()
+            logger.info(f"Conteggi generi: {genre_counts_top.to_dict()}")
+
             pie_data = pd.DataFrame({
                 "Genere": genre_counts_top.index,
                 "Locali": genre_counts_top.values
@@ -482,5 +602,7 @@ def render():
             )
 
             st.plotly_chart(fig, width=400)
+            logger.info("Grafico a torta creato e renderizzato")
         else:
+            logger.warning("Colonna 'locale_genere' non disponibile")
             st.info("Colonna 'locale_genere' non disponibile")

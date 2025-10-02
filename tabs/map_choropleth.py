@@ -1,14 +1,24 @@
+import logging
 import branca
 import streamlit as st
 import pandas as pd
 import os
 import folium
 import plotly.express as px
-from streamlit_folium import st_folium
-from os.path import getmtime
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
-from utils.utilities import fmt, load_csv_city, list_available_cities, load_geojson
+from utils.utilities import fmt
+from utils.persistence import list_available_cities, load_geojson, load_csv_city
+
+# ===================== Logging setup =====================
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # ===================== Config =====================
 load_dotenv()
@@ -18,12 +28,14 @@ gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
 GENERI_PRIORITARI = set([g.strip() for g in gen_prioritari_str.split(",") if g.strip()])
 zoom_l = 8
 
+logger.info(f"Configurazione caricata: DATA_DIR={DATA_DIR}, GENERI_PRIORITARI={GENERI_PRIORITARI}")
 
 # ===================== Legend helper =====================
 def add_continuous_legend(m, cmap, position="bottomleft", title="Priorità (bassa → alta)"):
     import numpy as np
     from branca.element import MacroElement, Template
 
+    logger.debug("Aggiunta legenda continua alla mappa")
     STEP = 22
     vmin, vmax = float(cmap.vmin), float(cmap.vmax)
     vals = np.linspace(vmin, vmax, STEP)
@@ -73,11 +85,11 @@ def add_continuous_legend(m, cmap, position="bottomleft", title="Priorità (bass
     legend = MacroElement()
     legend._template = Template(template)
     m.get_root().add_child(legend)
-
+    logger.info("Legenda continua aggiunta correttamente")
 
 # ===================== Map builder =====================
 def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=zoom_l, highlight_locale=None):
-
+    logger.info(f"Costruzione mappa centrata su lat={center_lat}, lon={center_lon}")
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=zoom_level,
@@ -87,6 +99,7 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=zoo
 
     geojson_base = load_geojson()
     if geojson_base:
+        logger.debug("Aggiunta layer GeoJson di base")
         folium.GeoJson(
             geojson_base,
             name="Confini Base",
@@ -100,16 +113,21 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=zoo
 
     layer = load_geojson(geojson_layer)
     if layer is None:
+        logger.warning(f"Layer GeoJson non trovato: {geojson_layer}")
         return m
+    logger.info(f"Layer GeoJson caricato: {geojson_layer}")
 
+    # Log valori priorità
     ps_vals = []
     for feat in layer.get("features", []):
         v = feat.get("properties", {}).get("ps_mean", None)
         if v is not None:
             try:
                 ps_vals.append(float(v))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Errore conversione ps_mean: {e}")
+
+    logger.info(f"Trovati {len(ps_vals)} valori di priorità")
 
     if ps_vals:
         vmin, vmax = min(ps_vals), max(ps_vals)
@@ -133,6 +151,7 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=zoo
         ).add_to(m)
 
     if df_filtered is not None and not df_filtered.empty:
+        logger.info(f"Aggiunta {len(df_filtered)} punti sulla mappa")
         ps_vals_loc = df_filtered["priority_score"].dropna()
         if not ps_vals_loc.empty:
             vmin_p, vmax_p = ps_vals_loc.min(), ps_vals_loc.max()
@@ -162,7 +181,7 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=zoo
                 f"Priorità: <b>{pr_label}</b><br>"
                 f"Eventi totali: {fmt(r.get('events_total'), 0)}<br>",
                 max_width=200,
-                show=(highlight_locale == r.get("des_locale"))  # 👈 popup auto aperto
+                show=(highlight_locale == r.get("des_locale"))
             )
 
             folium.CircleMarker(
@@ -178,7 +197,6 @@ def build_map(df_filtered, center_lat, center_lon, geojson_layer, zoom_level=zoo
 
     return m
 
-
 # ===================== Cached renderer =====================
 @st.cache_data(show_spinner=False)
 def _render_map_html_priority(
@@ -191,17 +209,22 @@ def _render_map_html_priority(
     zoom_level: int,
     highlight_locale: str,
 ):
+    logger.info("Render mappa richiesta")
     dummy_df = pd.DataFrame(points_payload, columns=[
         "latitudine", "longitudine", "priority_score", "priority", "des_locale", "indirizzo", "GENERE_DISPLAY", "events_total"
     ]) if points_payload else pd.DataFrame(columns=[
         "latitudine", "longitudine", "priority_score", "priority", "des_locale", "indirizzo", "GENERE_DISPLAY", "events_total"
     ])
     m = build_map(dummy_df, center_lat, center_lon, geojson_layer_path, zoom_level, highlight_locale)
+    logger.info("Mappa renderizzata correttamente")
     return m.get_root().render()
+
 
 
 # ===================== Render =====================
 def render():
+    logger.info("Avvio rendering mappa priorità attenzione")
+
     st.header("Zone con priorità di attenzione")
     st.info("""
     Questa mappa evidenzia i locali e le aree urbane che **meritano maggiore attenzione nei controlli sugli eventi dichiarati**.
@@ -209,6 +232,11 @@ def render():
     - I **punti** rappresentano i singoli locali: il colore indica il livello di priorità.  
     - I **poligoni colorati (celle)** mostrano la priorità media della zona.  
     """)
+
+    try:
+        logger.info("Render completato correttamente")
+    except Exception as e:
+        logger.error(f"Errore durante il rendering: {e}", exc_info=True)
 
     # --- Session state ---
     if "map_center" not in st.session_state: st.session_state.map_center = (0, 0)
@@ -366,15 +394,6 @@ def render():
             geojson_mtime = os.path.getmtime(H3_LAYER) if os.path.exists(H3_LAYER) else 0.0
             base_geojson_path = os.path.join(DATA_DIR, "geo", "seprag.geojson")
             base_mtime = os.path.getmtime(base_geojson_path) if os.path.exists(base_geojson_path) else 0.0
-            html = _render_map_html_priority(
-                points_payload,
-                center_lat,
-                center_lon,
-                H3_LAYER,
-                geojson_mtime,
-                base_mtime,
-                int(zoom_level),
-                highlight_locale or "",
-            )
+            html = _render_map_html_priority(points_payload,center_lat,center_lon,
+                H3_LAYER,geojson_mtime,base_mtime,int(zoom_level),highlight_locale or "",)
             components.html(html, height=800)
-
