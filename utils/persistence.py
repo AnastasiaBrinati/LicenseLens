@@ -82,7 +82,7 @@ def load_csv_city(city: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 @st.cache_data
-def load_locali_data():
+def load_locali_data() -> pd.DataFrame:
     logger.info("Caricamento dati di tutti i locali")
     df_cities = []
     cities = list_available_cities()

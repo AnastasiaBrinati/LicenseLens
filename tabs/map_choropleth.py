@@ -220,23 +220,22 @@ def _render_map_html_priority(
     return m.get_root().render()
 
 
-
 # ===================== Render =====================
-def render():
+def render(allowed_regions=None):
     logger.info("Avvio rendering mappa priorità attenzione")
-
     st.header("Zone con priorità di attenzione")
+
+    if allowed_regions is None:
+        st.warning("Nessuna regione assegnata. Nessun dato da mostrare.")
+        return
+
+
     st.info("""
     Questa mappa evidenzia i locali e le aree urbane che **meritano maggiore attenzione nei controlli sugli eventi dichiarati**.
 
     - I **punti** rappresentano i singoli locali: il colore indica il livello di priorità.  
     - I **poligoni colorati (celle)** mostrano la priorità media della zona.  
     """)
-
-    try:
-        logger.info("Render completato correttamente")
-    except Exception as e:
-        logger.error(f"Errore durante il rendering: {e}", exc_info=True)
 
     # --- Session state ---
     if "map_center" not in st.session_state: st.session_state.map_center = (0, 0)
@@ -246,47 +245,50 @@ def render():
     available_sedi = list_available_cities()
     available_genres = sorted(GENERI_PRIORITARI) + ["Altro"]
 
-    # --- Riga 1: Sede e Comune ---
-    col1, col2 = st.columns(2)
-    with col1:
+    # --- Layout principale: Mappa a sinistra, Filtri a destra ---
+    col_filters, col_map = st.columns([1, 4])
+
+    with col_filters:
+        st.subheader("🔍 Filtri")
+
+        # --- Filtro sede ---
         default_idx = available_sedi.index("Roma") if "Roma" in available_sedi else 0
         selected_sede = st.selectbox("Seleziona sede:", available_sedi, index=default_idx, key="filter_sede_priority")
 
-    df_city = load_csv_city(selected_sede)
-    if df_city.empty:
-        st.warning("Nessun dato per la sede selezionata.")
-        return
+        df_city = load_csv_city(selected_sede)
+        if df_city.empty:
+            st.warning("Nessun dato per la sede selezionata.")
+            return
 
-    # reset comune se cambio sede
-    if st.session_state.last_sede != selected_sede:
-        st.session_state["filter_comune_priority"] = "Tutti"
-    st.session_state.last_sede = selected_sede
+        # reset filtro se cambio sede
+        if st.session_state.last_sede != selected_sede:
+            st.session_state["filter_my_cod_priority"] = "Tutti"
+        st.session_state.last_sede = selected_sede
 
-    comuni = ["Tutti"] + sorted(df_city["comune"].dropna().unique())
-    with col2:
-        selected_comune = st.selectbox("Seleziona comune:", comuni,
-                                       index=comuni.index(st.session_state.get("filter_comune_priority", "Tutti")),
-                                       key="filter_comune_priority")
+        # --- Filtro seprag_cod ---
+        available_seprag_cod = ["Tutti"] + sorted(df_city["seprag_cod"].dropna().unique())
+        selected_seprag_cod = st.selectbox(
+            "Seleziona seprag:",
+            available_seprag_cod,
+            index=available_seprag_cod.index(st.session_state.get("filter_my_cod_priority", "Tutti")),
+            key="filter_my_cod_priority"
+        )
 
-    comune_selected = False
-    if selected_comune != "Tutti":
-        df_city = df_city[df_city["comune"] == selected_comune]
-        comune_selected = True
+        if selected_seprag_cod != "Tutti":
+            df_city = df_city[df_city["seprag_cod"] == selected_seprag_cod]
 
-    # --- Riga 2: Generi e Locale ---
-    col3, col4 = st.columns(2)
-    with col3:
+        # --- Filtro generi ---
         selected_genres = st.multiselect("Generi:", available_genres,
                                          default=available_genres,
                                          key="filter_genres_priority")
 
-    df_city["GENERE_DISPLAY"] = df_city["locale_genere"].apply(
-        lambda g: g if g in GENERI_PRIORITARI else "Altro"
-    )
-    df_filtered = df_city[df_city["GENERE_DISPLAY"].isin(selected_genres)]
+        df_city["GENERE_DISPLAY"] = df_city["locale_genere"].apply(
+            lambda g: g if g in GENERI_PRIORITARI else "Altro"
+        )
+        df_filtered = df_city[df_city["GENERE_DISPLAY"].isin(selected_genres)]
 
-    highlight_locale = None
-    with col4:
+        # --- Filtro locale ---
+        highlight_locale = None
         if not df_filtered.empty:
             available_locals = ["Tutti"] + sorted(df_filtered["des_locale"].unique().tolist())
             selected_local = st.selectbox("Seleziona locale:", available_locals, index=0, key="filter_local_priority")
@@ -304,68 +306,57 @@ def render():
         else:
             selected_local = "Tutti"
 
-    if selected_local == "Tutti" and not df_filtered.empty:
-        st.session_state.map_center = (
-            float(df_filtered["latitudine"].mean()),
-            float(df_filtered["longitudine"].mean())
-        )
-        st.session_state.map_zoom = 12 if comune_selected else zoom_l
-
-    center_lat, center_lon = st.session_state.map_center
-    zoom_level = st.session_state.map_zoom
-
-    # --- Mappa e statistiche ---
-    if not df_filtered.empty:
-        col_map, col_stats = st.columns([2, 1])
-
-        with col_map:
-            with st.spinner("⏳ Caricamento mappa..."):
-                if not df_filtered.empty:
-                    points_payload = tuple(
-                        (
-                            float(r["latitudine"]),
-                            float(r["longitudine"]),
-                            float(r.get("priority_score", 0)) if pd.notna(r.get("priority_score", 0)) else 0.0,
-                            int(r.get("priority", 0)) if pd.notna(r.get("priority", 0)) else 0,
-                            str(r.get("des_locale", "")),
-                            str(r.get("indirizzo", "")),
-                            str(r.get("GENERE_DISPLAY", "Altro")),
-                            float(r.get("events_total", 0)) if pd.notna(r.get("events_total", 0)) else 0.0,
-                        )
-                        for _, r in df_filtered.iterrows()
-                    )
-                else:
-                    points_payload = tuple()
-
-                geojson_mtime = os.path.getmtime(H3_LAYER) if os.path.exists(H3_LAYER) else 0.0
-                base_geojson_path = os.path.join(DATA_DIR, "geo", "seprag.geojson")
-                base_mtime = os.path.getmtime(base_geojson_path) if os.path.exists(base_geojson_path) else 0.0
-
-                html = _render_map_html_priority(
-                    points_payload,
-                    center_lat,
-                    center_lon,
-                    H3_LAYER,
-                    geojson_mtime,
-                    base_mtime,
-                    int(zoom_level),
-                    highlight_locale or "",
+    # --- Colonna Mappa ---
+    with col_map:
+        center_lat, center_lon = st.session_state.map_center
+        zoom_level = st.session_state.map_zoom
+        with st.spinner("⏳ Caricamento mappa..."):
+            points_payload = tuple(
+                (
+                    float(r["latitudine"]),
+                    float(r["longitudine"]),
+                    float(r.get("priority_score", 0)) if pd.notna(r.get("priority_score", 0)) else 0.0,
+                    int(r.get("priority", 0)) if pd.notna(r.get("priority", 0)) else 0,
+                    str(r.get("des_locale", "")),
+                    str(r.get("indirizzo", "")),
+                    str(r.get("GENERE_DISPLAY", "Altro")),
+                    float(r.get("events_total", 0)) if pd.notna(r.get("events_total", 0)) else 0.0,
                 )
-                components.html(html, height=800)
+                for _, r in df_filtered.iterrows()
+            ) if not df_filtered.empty else tuple()
 
-        with col_stats:
-            st.subheader("📊 Statistiche - ultimi 12 mesi")
+            geojson_mtime = os.path.getmtime(H3_LAYER) if os.path.exists(H3_LAYER) else 0.0
+            base_geojson_path = os.path.join(DATA_DIR, "geo", "seprag.geojson")
+            base_mtime = os.path.getmtime(base_geojson_path) if os.path.exists(base_geojson_path) else 0.0
 
-            total_locali = len(df_filtered)
-            total_eventi = df_filtered["events_total"].sum() if "events_total" in df_filtered.columns else 0
-            st.metric("Totale Locali", f"{total_locali:,}")
-            st.metric("Totale Eventi", f"{int(total_eventi):,}")
+            html = _render_map_html_priority(
+                points_payload,
+                center_lat,
+                center_lon,
+                H3_LAYER,
+                geojson_mtime,
+                base_mtime,
+                int(zoom_level),
+                highlight_locale or "",
+            )
+            components.html(html, height=800)
 
+    # --- Statistiche sotto (a tutta larghezza) ---
+    if not df_filtered.empty:
+        st.subheader("📊 Statistiche - ultimi 12 mesi")
+
+        total_locali = len(df_filtered)
+        total_eventi = df_filtered["events_total"].sum() if "events_total" in df_filtered.columns else 0
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Totale Locali", f"{total_locali:,}")
+        col2.metric("Totale Eventi", f"{int(total_eventi):,}")
+
+        with col3:
             st.subheader("Quota di locali per livello di priorità")
             priority_labels = {1: "Alta priorità", 2: "Media priorità", 3: "Bassa priorità"}
             priority_colors = {1: "#d73027", 2: "#fdae61", 3: "#ffffcc"}
 
-            if 'priority' in df_filtered.columns:
+            if "priority" in df_filtered.columns:
                 priority_counts = df_filtered["priority"].value_counts().to_dict()
                 for p in [1, 2, 3]:
                     priority_counts.setdefault(p, 0)
@@ -386,14 +377,3 @@ def render():
                 fig.update_layout(showlegend=False, margin=dict(l=20, r=20, t=10, b=10), height=320)
 
                 st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("Colonna 'priority' non trovata nei dati.")
-    else:
-        with st.spinner("⏳ Caricamento mappa..."):
-            points_payload = tuple()
-            geojson_mtime = os.path.getmtime(H3_LAYER) if os.path.exists(H3_LAYER) else 0.0
-            base_geojson_path = os.path.join(DATA_DIR, "geo", "seprag.geojson")
-            base_mtime = os.path.getmtime(base_geojson_path) if os.path.exists(base_geojson_path) else 0.0
-            html = _render_map_html_priority(points_payload,center_lat,center_lon,
-                H3_LAYER,geojson_mtime,base_mtime,int(zoom_level),highlight_locale or "",)
-            components.html(html, height=800)
