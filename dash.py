@@ -2,7 +2,7 @@ import streamlit as st
 import yaml
 from pathlib import Path
 from streamlit_option_menu import option_menu
-from tabs import metrics, map_h3, map_choropleth
+from tabs import metrics, recurrence_analysis, map_h3, map_choropleth
 
 # ===================== Config =====================
 st.set_page_config(page_title="Dashboard Eventi", layout="wide")
@@ -51,8 +51,8 @@ with st.sidebar:
 # ===================== Menu orizzontale moderno =====================
 active_tab = option_menu(
     menu_title=None,
-    options=["Locali Prioritari", "Mappa Attività", "Mappa Priorità"],
-    icons=["search", "map", "map-fill"],
+    options=["Locali Prioritari", "Analisi Ricorrenze", "Mappa Attività", "Mappa Priorità"],
+    icons=["search", "arrow-repeat", "map", "map-fill"],
     menu_icon="cast",
     default_index=0,
     orientation="horizontal",
@@ -61,6 +61,8 @@ active_tab = option_menu(
 # ===================== Caricamento tab selezionata =====================
 if active_tab == "Locali Prioritari":
     metrics.render(st.session_state.regions)
+elif active_tab == "Analisi Ricorrenze":
+    recurrence_analysis.render(st.session_state.regions)
 elif active_tab == "Mappa Attività":
     map_h3.render(st.session_state.regions)
 elif active_tab == "Mappa Priorità":

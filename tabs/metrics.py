@@ -76,7 +76,7 @@ def render(allowed_regions=None):
 
     # ------------------ Filtri ------------------
     with col_filters:
-        st.subheader("🔍 Filtri")
+        st.subheader("Filtri")
         try:
             if 'sede' in df.columns and 'seprag_cod' in df.columns:
 
