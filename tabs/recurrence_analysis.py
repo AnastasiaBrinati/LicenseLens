@@ -325,7 +325,7 @@ def show_event_details(eventi_dettaglio):
 
         st.markdown(f"""
             <div class="event-detail-card">
-                <div class="event-year">📅 {evento['anno']}</div>
+                <div class="event-year">{evento['anno']}</div>
                 <div class="event-info">
                     <strong>Data:</strong> {data_formatted}<br>
                     <strong>Orario:</strong> {ora_formatted}<br>
@@ -373,9 +373,13 @@ def render(allowed_regions=None):
     with col_filters:
         st.subheader("Filtri")
 
-        # Selezione giorno/mese
-        st.markdown("### 📅 Seleziona giorno")
-
+        # Toggle Priority Score
+        use_priority_score = st.toggle(
+            "Usa Priority Score",
+            value=True,
+            help="Disattiva per ordinare solo per ricorrenza",
+            key="use_priority_score"
+        )
         # Calcola domani come default
         domani = datetime.datetime.now().date() + datetime.timedelta(days=1)
         default_day = domani.day
@@ -403,8 +407,6 @@ def render(allowed_regions=None):
                 key="recurrence_month"
             )
             selected_month = list(mesi.keys())[list(mesi.values()).index(selected_month_name)]
-
-        st.markdown(f"**Data selezionata:** {selected_day:02d}/{selected_month:02d}")
 
         st.divider()
 
@@ -472,18 +474,6 @@ def render(allowed_regions=None):
             key="recurrence_locali"
         )
 
-        # Score minimo
-        st.divider()
-        min_score = st.slider(
-            "Score minimo",
-            min_value=0.0,
-            max_value=1.0,
-            value=0.0,
-            step=0.1,
-            help="Mostra solo locali con score >= valore selezionato",
-            key="recurrence_min_score"
-        )
-
     # ========== CALCOLO RICORRENZE ==========
     filters = {
         'sedi': selected_sedi,
@@ -495,10 +485,6 @@ def render(allowed_regions=None):
 
     with st.spinner("Calcolo ricorrenze..."):
         df_results = calculate_recurrence_score(df_events, df_priority_scores, selected_day, selected_month, filters)
-
-    # Applica filtro score minimo
-    if not df_results.empty:
-        df_results = df_results[df_results['score'] >= min_score]
 
     # ========== TABELLA RISULTATI ==========
     with col_table:
@@ -589,7 +575,7 @@ def render(allowed_regions=None):
             show_event_details(locale_data['eventi_dettaglio'])
 
         else:
-            st.info("👆 Seleziona una riga nella tabella per vedere i dettagli")
+            st.info("Seleziona una riga nella tabella per vedere i dettagli")
 
     # ========== STATISTICHE GLOBALI ==========
     st.divider()
@@ -602,7 +588,8 @@ def render(allowed_regions=None):
 
     with col_stat2:
         avg_score = df_results['score'].mean() if not df_results.empty else 0
-        st.metric("Score Finale Medio", f"{avg_score:.3f}")
+        score_metric_label = "Score Medio" if not use_priority_score else "Score Finale Medio"
+        st.metric(score_metric_label, f"{avg_score:.3f}")
 
     with col_stat3:
         locali_100_ric = len(df_results[df_results['score_ricorrenza'] == 1.0])
