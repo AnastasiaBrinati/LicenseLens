@@ -2,6 +2,7 @@ data/
 config/
 openshift/
 utils/redshift
+logs/
 
 .DS_Store
 .env

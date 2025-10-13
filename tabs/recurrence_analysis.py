@@ -12,7 +12,7 @@ from pathlib import Path
 # ==========================
 # 🔐 Config Logging
 # ==========================
-LOG_FILE = "recurrence_analysis.log"
+LOG_FILE = "logs/recurrence_analysis.log"
 
 handler = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
 formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s - %(message)s")

@@ -13,7 +13,7 @@ import csv
 # ==========================
 # 🔐 Config Logging
 # ==========================
-LOG_FILE = "dashboard_metrics.log"
+LOG_FILE = "logs/dashboard_metrics.log"
 
 # Rotazione log: max 5 MB, 3 backup
 handler = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
