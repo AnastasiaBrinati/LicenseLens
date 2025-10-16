@@ -39,6 +39,12 @@ logger.info("Avvio modulo metrics. Generi prioritari: %s", GENERI_PRIORITARI)
 def render(allowed_regions=None):
     st.header("Locali ad alta priorità")
 
+    # Inizializza set dei locali nascosti e tracciamento ultimo click
+    if "hidden_locales" not in st.session_state:
+        st.session_state.hidden_locales = set()
+    if "last_selected_row" not in st.session_state:
+        st.session_state.last_selected_row = None
+
     if allowed_regions is None:
         st.warning("Nessuna regione assegnata. Nessun dato da mostrare.")
         return
@@ -63,6 +69,12 @@ def render(allowed_regions=None):
             df_city = load_csv_city(sede)
             if not df_city.empty:
                 df_cities.append(df_city)
+
+        if not df_cities:
+            logger.error("Nessun dato caricato per le regioni assegnate.")
+            st.error("Nessun dato disponibile per le regioni assegnate.")
+            return
+
         df = pd.concat(df_cities, ignore_index=True)
 
     if df.empty:
@@ -72,7 +84,7 @@ def render(allowed_regions=None):
     logger.info("Dati caricati: %d righe, %d colonne", df.shape[0], df.shape[1])
 
     # ------------------ Layout principale ------------------
-    col_filters, col_table, col_right = st.columns([0.5, 2, 1])  # left wider for tables
+    col_filters, col_table = st.columns([0.5, 3])  # Solo filtri e tabella
 
     # ------------------ Filtri ------------------
     with col_filters:
@@ -171,6 +183,11 @@ def render(allowed_regions=None):
                 logger.error("Nessuna colonna 'events_total' trovata → imposto 'TOTALE_EVENTI' = 0")
                 df['TOTALE_EVENTI'] = 0
 
+        # Filtra locali nascosti
+        if st.session_state.hidden_locales:
+            df = df[~df['des_locale'].isin(st.session_state.hidden_locales)]
+            logger.info(f"Filtrati {len(st.session_state.hidden_locales)} locali nascosti")
+
         if 'priority_score' in df.columns:
             df_top = df.nlargest(top_n, 'priority_score').reset_index(drop=True)
             logger.info(f"Generata top {top_n} righe ordinate per 'priority_score'")
@@ -179,93 +196,58 @@ def render(allowed_regions=None):
             logger.error("Colonna 'priority_score' mancante: impossibile generare df_top")
             return
 
-        display_columns = ["des_locale", "locale_genere", "indirizzo", "TOTALE_EVENTI","priority_score"]
+        # Aggiungi colonna checkbox per nascondere
+        df_top_copy = df_top.copy()
+        df_top_copy.insert(0, "Nascondi", False)
+
+        display_columns = ["Nascondi", "des_locale", "locale_genere", "indirizzo", "TOTALE_EVENTI","priority_score"]
         column_mapping = {
+            "Nascondi": "❌",
             "des_locale": "Nome Locale",
             "locale_genere": "Genere",
             "indirizzo": "Indirizzo",
             "TOTALE_EVENTI": "Eventi Totali",
             "priority_score": "Priority Score"
         }
-        df_to_display = df_top[display_columns].rename(columns=column_mapping)
+        df_to_display = df_top_copy[display_columns].rename(columns=column_mapping)
 
-        selected_row = st.dataframe(
+        # Riga con azioni sopra la tabella
+        action_col1, action_col2 = st.columns([5, 1])
+        with action_col1:
+            st.caption("Spunta la checkbox per nascondere un locale")
+            if st.session_state.hidden_locales:
+                st.caption(f"{len(st.session_state.hidden_locales)} locale/i nascosto/i")
+        with action_col2:
+            if st.session_state.hidden_locales:
+                if st.button("Reset", key="reset_hidden"):
+                    st.session_state.hidden_locales.clear()
+                    st.rerun()
+
+        edited_df = st.data_editor(
             df_to_display,
-            width="stretch",
+            use_container_width=True,
             hide_index=True,
-            on_select="rerun",
-            selection_mode="single-row",
+            column_config={
+                "❌": st.column_config.CheckboxColumn(
+                    "❌",
+                    help="Seleziona per nascondere",
+                    default=False,
+                    width="small"
+                )
+            },
+            disabled=[col for col in df_to_display.columns if col != "❌"],
             key="metrics_table"
         )
 
-    # ---------- RIGHT COLUMN (Charts) ----------
-    logger.info("Rendering colonna destra (Charts)")
-
-    with col_right:
-        st.subheader("Andamento Eventi Mensili")
-        logger.info(
-            f"Selected row: {selected_row.selection if hasattr(selected_row, 'selection') else 'nessuna selezione'}")
-
-        if selected_row.selection and len(selected_row.selection['rows']) > 0:
-            selected_idx = selected_row.selection['rows'][0]
-            logger.info(f"Riga selezionata indice: {selected_idx}")
-
-            selected_locale_data = df_top.iloc[[selected_idx]]
-            locale_name = selected_locale_data.iloc[0].get('des_locale', f'Locale #{selected_idx + 1}')
-            priority_score = selected_locale_data.iloc[0].get('priority_score', 'N/A')
-
-            logger.info(f"Locale selezionato: {locale_name}, Priority Score: {priority_score}")
-            st.info(f"📍 **Locale selezionato:** {locale_name}")
-
-            create_events_timeline_chart(selected_locale_data)
-            logger.info("Chart andamento eventi mensili creato")
-        else:
-            logger.info("Nessuna riga selezionata")
-            st.info("Seleziona una riga nella tabella")
-
-        """
-        st.subheader("Quota di locali per genere")
-        if 'locale_genere' in df_top.columns:
-            logger.info("Colonna 'locale_genere' trovata, generazione grafico a torta")
-            genre_counts_top = df_top['locale_genere'].value_counts()
-            logger.info(f"Conteggi generi: {genre_counts_top.to_dict()}")
-
-            pie_data = pd.DataFrame({
-                "Genere": genre_counts_top.index,
-                "Locali": genre_counts_top.values
-            })
-
-            colors = px.colors.qualitative.Set3
-
-            fig = px.pie(
-                pie_data,
-                names="Genere",
-                values="Locali",
-                color="Genere",
-                color_discrete_sequence=colors
-            )
-
-            fig.update_traces(
-                textinfo='percent',
-                hovertemplate="<b>%{label}</b> Locali: %{value} Percentuale: %{percent}<extra></extra>"
-            )
-
-            fig.update_layout(
-                showlegend=True,
-                margin=dict(l=10, r=10, t=10, b=10),
-                height=320,
-                legend_itemclick=False,
-                legend_itemdoubleclick=False,
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)'
-            )
-
-            st.plotly_chart(fig, width=400)
-            logger.info("Grafico a torta creato e renderizzato")
-        else:
-            logger.warning("Colonna 'locale_genere' non disponibile")
-            st.info("Colonna 'locale_genere' non disponibile")
-        """
+        # Controlla quali righe hanno la checkbox spuntata
+        checked_rows = edited_df[edited_df["❌"] == True]
+        if not checked_rows.empty:
+            for idx in checked_rows.index:
+                locale_to_hide = checked_rows.loc[idx, "Nome Locale"]
+                if locale_to_hide not in st.session_state.hidden_locales:
+                    st.session_state.hidden_locales.add(locale_to_hide)
+                    logger.info(f"Locale nascosto: {locale_to_hide}")
+            st.rerun()
 
     # ----------------- Eventi per date selezionate -----------------
     mesi = {
@@ -516,7 +498,7 @@ def render(allowed_regions=None):
         logger.info("Ricerca abilitata")
         search_disabled = False
 
-    if st.button("🔍 Cerca eventi per le date selezionate", key="search_selected_days_events",
+    if st.button("Cerca eventi per le date selezionate", key="search_selected_days_events",
                          disabled=search_disabled):
 
         logger.info("Bottone 'Cerca eventi' premuto")
@@ -557,7 +539,7 @@ def render(allowed_regions=None):
                     cols = st.columns(3)
 
                 with cols[i % 3]:
-                    st.markdown(f"<div class='day-wrap'><div class='day-title'>📅 {day_str}</div></div>",
+                    st.markdown(f"<div class='day-wrap'><div class='day-title'>{day_str}</div></div>",
                                         unsafe_allow_html=True)
 
                     if df_day is not None and not df_day.empty:
@@ -574,10 +556,10 @@ def render(allowed_regions=None):
                                         f"""
                                             <div class="venue-card">
                                               <div class="venue-head">
-                                                <div class="venue-name">📍 {row['Nome Locale']}</div>
+                                                <div class="venue-name">{row['Nome Locale']}</div>
                                               </div>
                                               <div class="links-wrap">
-                                                {''.join([f"<a href='{l.strip()}' target='_blank' class='chip-link'>🔗 Link {i + 1}</a>" for i, l in enumerate(links)])}
+                                                {''.join([f"<a href='{l.strip()}' target='_blank' class='chip-link'>Link {i + 1}</a>" for i, l in enumerate(links)])}
                                               </div>
                                             </div>
                                             """,
@@ -596,7 +578,6 @@ def render(allowed_regions=None):
                                                     f"""
                                                     <div class="compact-card">
                                                       <div class="header">
-                                                        <div class="favicon">🌐</div>
                                                         <div class="title">{title}</div>
                                                       </div>
                                                       <div class="meta">
@@ -605,7 +586,7 @@ def render(allowed_regions=None):
                                                         <span class="time-dot"></span><span>{time_info}</span>
                                                       </div>
                                                       <p class="snippet">{snippet}</p>
-                                                      <div class="actions"><a class="link-btn" href="{url}" target="_blank">🔗 Link</a></div>
+                                                      <div class="actions"><a class="link-btn" href="{url}" target="_blank">Link</a></div>
                                                     </div>
                                                     """,
                                                     unsafe_allow_html=True)

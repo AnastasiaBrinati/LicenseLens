@@ -30,8 +30,11 @@ load_dotenv()
 gen_prioritari_str = os.getenv("GENERI_PRIORITARI", "")
 GENERI_PRIORITARI = [g.strip() for g in gen_prioritari_str.split(",") if g.strip()]
 DATA_DIR = os.getenv("DATA_DIR", "data")
+LOCALI_CSV_DIR = os.getenv("LOCALI_CSV_DIR", DATA_DIR)
+EVENTI_CSV_DIR = os.getenv("EVENTI_CSV_DIR", DATA_DIR)
 
 logger.info("Avvio modulo recurrence_analysis. Generi prioritari: %s", GENERI_PRIORITARI)
+logger.info("DATA_DIR: %s, LOCALI_CSV_DIR: %s, EVENTI_CSV_DIR: %s", DATA_DIR, LOCALI_CSV_DIR, EVENTI_CSV_DIR)
 
 
 def load_events_data(allowed_regions):
@@ -47,7 +50,7 @@ def load_events_data(allowed_regions):
     for region in allowed_regions:
         # Cerca tutti i file Eventi_{region}_{anno}.csv
         pattern = f"Eventi_{region}_*.csv"
-        event_files = list(Path(DATA_DIR).glob(pattern))
+        event_files = list(Path(EVENTI_CSV_DIR).glob(pattern))
 
         logger.info(f"Trovati {len(event_files)} file eventi per {region}")
 
@@ -104,7 +107,7 @@ def load_locali_priority_scores(allowed_regions):
     all_locali = []
 
     for region in allowed_regions:
-        file_path = Path(DATA_DIR) / f"Locali_{region}.csv"
+        file_path = Path(LOCALI_CSV_DIR) / f"Locali_{region}.csv"
 
         if not file_path.exists():
             logger.warning(f"File {file_path} non trovato")
@@ -192,7 +195,7 @@ def calculate_recurrence_score(df_events, df_priority_scores, day, month, filter
     if filters.get('comuni'):
         df_filtered_events = df_filtered_events[df_filtered_events['seprag_cod'].isin(filters['comuni'])]
     if filters.get('generi'):
-        df_filtered_events = df_filtered_events[df_filtered_events['locale_genere'].isin(filters['generi'])]
+        df_filtered_events = df_filtered_events[df_filtered_events['GENERE_CAT'].isin(filters['generi'])]
     if filters.get('locali'):
         df_filtered_events = df_filtered_events[df_filtered_events['des_locale'].isin(filters['locali'])]
 
@@ -366,6 +369,15 @@ def render(allowed_regions=None):
         st.error("Nessun file eventi trovato. Verifica la presenza dei file Eventi_{città}_{anno}.csv")
         return
 
+    # ========== CATEGORIZZAZIONE GENERI ==========
+    if 'locale_genere' in df_events.columns:
+        df_events['GENERE_CAT'] = df_events['locale_genere'].apply(
+            lambda g: g if g in GENERI_PRIORITARI else "Altro"
+        )
+        logger.info("Creata colonna GENERE_CAT per categorizzazione generi")
+    else:
+        logger.warning("Colonna 'locale_genere' non trovata nei dati eventi")
+
     # ========== Layout principale ==========
     col_filters, col_table, col_details = st.columns([1, 2, 1.5])
 
@@ -380,6 +392,7 @@ def render(allowed_regions=None):
             help="Disattiva per ordinare solo per ricorrenza",
             key="use_priority_score"
         )
+
         # Calcola domani come default
         domani = datetime.datetime.now().date() + datetime.timedelta(days=1)
         default_day = domani.day
@@ -440,15 +453,12 @@ def render(allowed_regions=None):
             key="recurrence_comuni"
         )
 
-        # Filtro generi
-        if 'locale_genere' in df_events.columns:
-            generi_options = sorted(df_events['locale_genere'].dropna().unique().tolist())
+        # Filtro generi (usando GENERE_CAT)
+        if 'GENERE_CAT' in df_events.columns:
+            generi_options = sorted(df_events['GENERE_CAT'].dropna().unique().tolist())
 
-            # Default: "Bar" e "Discoteca" (case-insensitive match)
-            default_genres = []
-            for genere in generi_options:
-                if isinstance(genere, str) and genere.strip().lower() in ['bar', 'discoteca']:
-                    default_genres.append(genere)
+            # Default: primi 3 generi prioritari (escluso "Altro")
+            default_genres = [v for v in GENERI_PRIORITARI if v != 'Altro' and v in generi_options][:3]
 
             selected_genres = st.multiselect(
                 "Generi",
@@ -456,15 +466,17 @@ def render(allowed_regions=None):
                 default=default_genres,
                 key="recurrence_genres"
             )
+            logger.info(f"Generi selezionati: {selected_genres}")
         else:
             selected_genres = None
+            logger.warning("Colonna 'GENERE_CAT' non trovata")
 
         # Filtro locali
         df_for_locali = df_events[df_events['sede'].isin(selected_sedi)] if selected_sedi else df_events
         if selected_comuni:
             df_for_locali = df_for_locali[df_for_locali['seprag_cod'].isin(selected_comuni)]
         if selected_genres:
-            df_for_locali = df_for_locali[df_for_locali['locale_genere'].isin(selected_genres)]
+            df_for_locali = df_for_locali[df_for_locali['GENERE_CAT'].isin(selected_genres)]
 
         locali_options = sorted(df_for_locali['des_locale'].dropna().unique().tolist())
         selected_locali = st.multiselect(
@@ -624,7 +636,7 @@ def render(allowed_regions=None):
     if selected_comuni:
         df_events_filtered = df_events_filtered[df_events_filtered['seprag_cod'].isin(selected_comuni)]
     if selected_genres:
-        df_events_filtered = df_events_filtered[df_events_filtered['locale_genere'].isin(selected_genres)]
+        df_events_filtered = df_events_filtered[df_events_filtered['GENERE_CAT'].isin(selected_genres)]
     if selected_locali:
         df_events_filtered = df_events_filtered[df_events_filtered['des_locale'].isin(selected_locali)]
 

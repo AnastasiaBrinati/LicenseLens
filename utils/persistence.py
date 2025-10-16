@@ -12,7 +12,9 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 DATA_DIR = os.getenv("DATA_DIR", "/app/data")
+LOCALI_CSV_DIR = os.getenv("LOCALI_CSV_DIR", DATA_DIR)
 logger.info(f"DATA_DIR impostato a: {DATA_DIR}")
+logger.info(f"LOCALI_CSV_DIR impostato a: {LOCALI_CSV_DIR}")
 
 @st.cache_data
 def load_geojson(path: Optional[str] = None) -> Optional[dict]:
@@ -40,7 +42,7 @@ def load_geojson(path: Optional[str] = None) -> Optional[dict]:
 def list_available_cities() -> list:
     logger.info("Lista delle città disponibili")
     try:
-        all_csv = [f for f in os.listdir(DATA_DIR) if f.startswith("Locali_") and f.endswith(".csv")]
+        all_csv = [f for f in os.listdir(LOCALI_CSV_DIR) if f.startswith("Locali_") and f.endswith(".csv")]
         cities = sorted([f.replace("Locali_", "").replace(".csv", "") for f in all_csv])
         logger.info(f"Città trovate: {cities}")
         return cities
@@ -51,7 +53,7 @@ def list_available_cities() -> list:
 @st.cache_data
 def load_csv_city(city: str) -> pd.DataFrame:
     logger.info(f"Caricamento CSV per città: {city}")
-    path = os.path.join(DATA_DIR, f"Locali_{city}.csv")
+    path = os.path.join(LOCALI_CSV_DIR, f"Locali_{city}.csv")
     logger.debug(f"Percorso CSV: {path}")
 
     if not os.path.exists(path):

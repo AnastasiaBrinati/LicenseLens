@@ -18,6 +18,9 @@ USERS = config["credentials"]["users"]
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
+if "regions" not in st.session_state:
+    st.session_state.regions = []
+
 # ===================== Funzione login =====================
 def login_page():
     st.title("Login")
