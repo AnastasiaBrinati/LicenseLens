@@ -83,7 +83,7 @@ def check_event_exists(venue: str, city: str, event_date: str):
 
     try:
         logger.info("Invio richiesta a Gemini API")
-        time.sleep(10)  # throttling
+        time.sleep(12)  # throttling
         r = requests.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}",
             json=payload,
