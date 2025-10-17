@@ -3,6 +3,9 @@ import requests
 import json
 import time
 import logging
+import hashlib
+from datetime import datetime, timedelta
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -13,9 +16,73 @@ logging.basicConfig(level=logging.INFO)
 SERPER_API_KEY = os.environ.get("SERPER_API_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
+# Cache settings
+CACHE_DIR = Path("data/cache/events")
+CACHE_EXPIRY_HOURS = 24
+
 logger.info("Modulo di verifica eventi inizializzato")
 
+def _get_cache_key(venue: str, city: str, event_date: str) -> str:
+    """Genera una chiave univoca per la cache"""
+    key_string = f"{venue}|{city}|{event_date}".lower()
+    return hashlib.md5(key_string.encode()).hexdigest()
+
+def _get_cache_path(cache_key: str) -> Path:
+    """Ottiene il percorso del file di cache"""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    return CACHE_DIR / f"{cache_key}.json"
+
+def _load_from_cache(cache_key: str) -> dict:
+    """Carica risultato dalla cache se valido"""
+    cache_path = _get_cache_path(cache_key)
+
+    if not cache_path.exists():
+        return None
+
+    try:
+        with open(cache_path, 'r', encoding='utf-8') as f:
+            cached_data = json.load(f)
+
+        # Verifica se la cache è ancora valida
+        cached_time = datetime.fromisoformat(cached_data.get('timestamp', ''))
+        expiry_time = cached_time + timedelta(hours=CACHE_EXPIRY_HOURS)
+
+        if datetime.now() < expiry_time:
+            logger.info(f"Cache hit per chiave {cache_key}")
+            return cached_data.get('result')
+        else:
+            logger.info(f"Cache expired per chiave {cache_key}")
+            cache_path.unlink()
+            return None
+
+    except Exception as e:
+        logger.warning(f"Errore lettura cache: {e}")
+        return None
+
+def _save_to_cache(cache_key: str, result: dict):
+    """Salva risultato nella cache"""
+    cache_path = _get_cache_path(cache_key)
+
+    try:
+        cached_data = {
+            'timestamp': datetime.now().isoformat(),
+            'result': result
+        }
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(cached_data, f, ensure_ascii=False, indent=2)
+        logger.info(f"Risultato salvato in cache: {cache_key}")
+    except Exception as e:
+        logger.warning(f"Errore salvataggio cache: {e}")
+
 def check_event_exists(venue: str, city: str, event_date: str):
+    # Controlla cache prima di fare le chiamate API
+    cache_key = _get_cache_key(venue, city, event_date)
+    cached_result = _load_from_cache(cache_key)
+
+    if cached_result is not None:
+        logger.info(f"Risultato trovato in cache per {venue}, {city}, {event_date}")
+        return cached_result
+
     q = f"{venue} {city} eventi {event_date}"
     logger.info(f"Eseguo query evento: {q}")
 
@@ -35,11 +102,15 @@ def check_event_exists(venue: str, city: str, event_date: str):
             logger.debug(f"Risposta Serper: {json.dumps(search, indent=2, ensure_ascii=False)}")
         except ValueError as e:
             logger.error(f"JSON non valido da Serper: {e}")
-            return {"exists": False, "confidence": 0.0, "evidence": [], "error": f"Invalid JSON: {e}"}
+            result = {"exists": False, "confidence": 0.0, "evidence": [], "error": f"Invalid JSON: {e}"}
+            _save_to_cache(cache_key, result)
+            return result
 
     except requests.RequestException as e:
         logger.error(f"Errore richiesta Serper: {e}")
-        return {"exists": False, "confidence": 0.0, "evidence": [], "error": str(e)}
+        result = {"exists": False, "confidence": 0.0, "evidence": [], "error": str(e)}
+        _save_to_cache(cache_key, result)
+        return result
 
     items = [
         {"title": r.get("title",""), "snippet": r.get("snippet",""), "url": r.get("link","")}
@@ -50,7 +121,9 @@ def check_event_exists(venue: str, city: str, event_date: str):
 
     if not items:
         logger.warning("Nessun risultato trovato da Serper")
-        return {"exists": False, "confidence": 0.1, "evidence": []}
+        result = {"exists": False, "confidence": 0.1, "evidence": []}
+        _save_to_cache(cache_key, result)
+        return result
 
     # --- 2) Prompt per Gemini
     logger.info("Preparazione payload per Gemini API")
@@ -96,8 +169,12 @@ def check_event_exists(venue: str, city: str, event_date: str):
 
         text = data["candidates"][0]["content"]["parts"][0]["text"]
         logger.info("Risposta Gemini ottenuta correttamente")
-        return json.loads(text)
+        result = json.loads(text)
+        _save_to_cache(cache_key, result)
+        return result
 
     except Exception as e:
         logger.exception(f"Errore richiesta Gemini: {e}")
-        return {"exists": False, "confidence": 0.0, "evidence": [], "error": str(e)}
+        result = {"exists": False, "confidence": 0.0, "evidence": [], "error": str(e)}
+        _save_to_cache(cache_key, result)
+        return result

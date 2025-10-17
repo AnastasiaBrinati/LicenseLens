@@ -8,7 +8,6 @@ from utils.persistence import load_csv_city
 from utils.utilities import create_events_timeline_chart, get_today_events, extract_links
 from dotenv import load_dotenv
 import re
-import csv
 
 # ==========================
 # Config Logging
@@ -531,6 +530,9 @@ def render(allowed_regions=None):
 
             logger.info(f"Date selezionate per ricerca: {selected_dates}")
 
+            # Lista per raccogliere tutti i risultati per CSV
+            csv_results = []
+
             # --- ciclo sui giorni con layout a 3 colonne ---
             for i, d in enumerate(selected_dates):
                 day_str = f"{d.day:02d} {mesi[d.month]} {d.year}"
@@ -552,8 +554,21 @@ def render(allowed_regions=None):
                             has_links = row['Link'] and row['Link'].strip() != "-"
                             logger.info(f"Locale: {row['Nome Locale']}, has_links={has_links}")
 
+                            # Trova l'indirizzo del locale nel df_top
+                            locale_info = df_top[df_top['des_locale'] == row['Nome Locale']]
+                            indirizzo = locale_info.iloc[0]['indirizzo'] if not locale_info.empty and 'indirizzo' in locale_info.columns else 'N/A'
+
                             if has_links:
                                 links = extract_links(row['Link'])
+
+                                # Aggiungi ai risultati CSV
+                                for link in links:
+                                    csv_results.append({
+                                        'Nome Locale': row['Nome Locale'],
+                                        'Data Evento': d.strftime('%d/%m/%Y'),
+                                        'Link Evento': link.strip(),
+                                        'Indirizzo': indirizzo
+                                    })
 
                                 # Rendering card con i link dentro
                                 st.markdown(
@@ -595,10 +610,19 @@ def render(allowed_regions=None):
                                                     """,
                                                     unsafe_allow_html=True)
 
-                                    # Apri il file in append mode
-                                    csv_filename = "output.csv"
-                                    with open(csv_filename, mode="a", newline="", encoding="utf-8") as csvfile:
-                                        writer = csv.writer(csvfile)
+            # Salva CSV con tutti i risultati alla fine della ricerca
+            if csv_results:
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                csv_filename = f"data/export/eventi_trovati_{timestamp}.csv"
 
-                                        # Scrivi la riga
-                                        writer.writerow([row['Nome Locale'], d])
+                # Crea directory se non esiste
+                os.makedirs("data/export", exist_ok=True)
+
+                df_export = pd.DataFrame(csv_results)
+                df_export.to_csv(csv_filename, index=False, encoding='utf-8-sig')
+
+                logger.info(f"CSV esportato: {csv_filename} con {len(csv_results)} risultati")
+                st.success(f"Ricerca completata! Trovati {len(csv_results)} eventi. CSV salvato in: {csv_filename}")
+            else:
+                logger.info("Nessun evento con link trovato per l'export CSV")
+                st.info("Ricerca completata. Nessun evento con link trovato.")
