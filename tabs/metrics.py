@@ -537,7 +537,7 @@ def render(allowed_regions=None):
             for i, d in enumerate(selected_dates):
                 day_str = f"{d.day:02d} {mesi[d.month]} {d.year}"
                 logger.info(f"Ricerca eventi per giorno: {day_str}")
-                df_day = get_today_events(df_top, day_str)  # recupero eventi per il giorno
+                df_day = get_today_events(df_top, day_str)
                 st.session_state.df_events_by_day[day_str] = df_day
 
                 # nuova riga ogni 3 giorni
@@ -546,7 +546,7 @@ def render(allowed_regions=None):
 
                 with cols[i % 3]:
                     st.markdown(f"<div class='day-wrap'><div class='day-title'>{day_str}</div></div>",
-                                        unsafe_allow_html=True)
+                                unsafe_allow_html=True)
 
                     if df_day is not None and not df_day.empty:
                         logger.info(f"Trovati {len(df_day)} eventi per {day_str}")
@@ -564,26 +564,26 @@ def render(allowed_regions=None):
                                 # Aggiungi ai risultati CSV
                                 for link in links:
                                     csv_results.append({
-                                        'Nome Locale': row['Nome Locale'],
-                                        'Data Evento': d.strftime('%d/%m/%Y'),
-                                        'Link Evento': link.strip(),
-                                        'Indirizzo': indirizzo
+                                        'locale': row['Nome Locale'],
+                                        'data_evento': d.strftime('%d/%m/%Y'),
+                                        'link_evento': link.strip(),
+                                        'indirizzo': indirizzo
                                     })
 
                                 # Rendering card con i link dentro
                                 st.markdown(
-                                        f"""
-                                            <div class="venue-card">
-                                              <div class="venue-head">
-                                                <div class="venue-name">{row['Nome Locale']}</div>
-                                              </div>
-                                              <div class="links-wrap">
-                                                {''.join([f"<a href='{l.strip()}' target='_blank' class='chip-link'>Link {i + 1}</a>" for i, l in enumerate(links)])}
-                                              </div>
-                                            </div>
-                                            """,
-                                            unsafe_allow_html=True
-                                        )
+                                    f"""
+                                    <div class="venue-card">
+                                      <div class="venue-head">
+                                        <div class="venue-name">{row['Nome Locale']}</div>
+                                      </div>
+                                      <div class="links-wrap">
+                                        {''.join([f"<a href='{l.strip()}' target='_blank' class='chip-link'>Link {i + 1}</a>" for i, l in enumerate(links)])}
+                                      </div>
+                                    </div>
+                                    """,
+                                    unsafe_allow_html=True
+                                )
 
                                 evidenze_meta = row.get('EVIDENZE_META') if isinstance(row, pd.Series) else None
                                 if evidenze_meta:
@@ -594,26 +594,35 @@ def render(allowed_regions=None):
                                         time_info = ev.get('time') or ''
                                         domain = re.sub(r"^https?://", "", url).split("/")[0] if url else ''
                                         st.markdown(
-                                                    f"""
-                                                    <div class="compact-card">
-                                                      <div class="header">
-                                                        <div class="title">{title}</div>
-                                                      </div>
-                                                      <div class="meta">
-                                                        <span class="badge badge-ev">Evidenza</span>
-                                                        <span class="domain">{domain}</span>
-                                                        <span class="time-dot"></span><span>{time_info}</span>
-                                                      </div>
-                                                      <p class="snippet">{snippet}</p>
-                                                      <div class="actions"><a class="link-btn" href="{url}" target="_blank">Link</a></div>
-                                                    </div>
-                                                    """,
-                                                    unsafe_allow_html=True)
+                                            f"""
+                                            <div class="compact-card">
+                                              <div class="header">
+                                                <div class="title">{title}</div>
+                                              </div>
+                                              <div class="meta">
+                                                <span class="badge badge-ev">Evidenza</span>
+                                                <span class="domain">{domain}</span>
+                                                <span class="time-dot"></span><span>{time_info}</span>
+                                              </div>
+                                              <p class="snippet">{snippet}</p>
+                                              <div class="actions"><a class="link-btn" href="{url}" target="_blank">Link</a></div>
+                                            </div>
+                                            """,
+                                            unsafe_allow_html=True
+                                        )
 
             # Salva CSV con tutti i risultati alla fine della ricerca
             if csv_results:
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                csv_filename = f"data/export/eventi_trovati_{timestamp}.csv"
+                # Costruisci nome file con filtri applicati
+                date_range = f"{selected_dates[0].strftime('%Y%m%d')}-{selected_dates[-1].strftime('%Y%m%d')}" if len(selected_dates) > 1 else selected_dates[0].strftime('%Y%m%d')
+
+                # Formatta generi (max 3, sostituisce spazi con underscore)
+                generi_str = "_".join([g.replace(" ", "_") for g in selected_genres[:3]]) if selected_genres else "tutti"
+
+                # Formatta seprag (max 3)
+                seprag_str = "_".join(selected_comuni[:3]) if selected_comuni else "tutti"
+
+                csv_filename = f"data/export/eventi_trovati_{date_range}_{generi_str}_{seprag_str}.csv"
 
                 # Crea directory se non esiste
                 os.makedirs("data/export", exist_ok=True)
