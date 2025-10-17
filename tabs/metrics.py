@@ -616,8 +616,12 @@ def render(allowed_regions=None):
                 # Costruisci nome file con filtri applicati
                 date_range = f"{selected_dates[0].strftime('%Y%m%d')}-{selected_dates[-1].strftime('%Y%m%d')}" if len(selected_dates) > 1 else selected_dates[0].strftime('%Y%m%d')
 
-                # Formatta generi (max 3, sostituisce spazi con underscore)
-                generi_str = "_".join([g.replace(" ", "_") for g in selected_genres[:3]]) if selected_genres else "tutti"
+                # Formatta generi (max 3, sostituisce spazi e caratteri speciali)
+                def sanitize_filename(s):
+                    """Rimuove caratteri non validi per nomi file"""
+                    return re.sub(r'[^\w\s-]', '', s).replace(' ', '_')
+
+                generi_str = "_".join([sanitize_filename(g) for g in selected_genres[:3]]) if selected_genres else "tutti"
 
                 # Formatta seprag (max 3, converti in stringa)
                 seprag_str = "_".join([str(c) for c in selected_comuni[:3]]) if selected_comuni else "tutti"
