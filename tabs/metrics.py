@@ -619,8 +619,8 @@ def render(allowed_regions=None):
                 # Formatta generi (max 3, sostituisce spazi con underscore)
                 generi_str = "_".join([g.replace(" ", "_") for g in selected_genres[:3]]) if selected_genres else "tutti"
 
-                # Formatta seprag (max 3)
-                seprag_str = "_".join(selected_comuni[:3]) if selected_comuni else "tutti"
+                # Formatta seprag (max 3, converti in stringa)
+                seprag_str = "_".join([str(c) for c in selected_comuni[:3]]) if selected_comuni else "tutti"
 
                 csv_filename = f"data/export/eventi_trovati_{date_range}_{generi_str}_{seprag_str}.csv"
 
