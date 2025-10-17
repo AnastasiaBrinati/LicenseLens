@@ -11,9 +11,13 @@ import re
 import csv
 
 # ==========================
-# 🔐 Config Logging
+# Config Logging
 # ==========================
-LOG_FILE = "logs/dashboard_metrics.log"
+LOG_DIR = "logs"
+LOG_FILE = os.path.join(LOG_DIR, "dashboard_metrics.log")
+
+# Crea cartella logs se non esiste
+os.makedirs(LOG_DIR, exist_ok=True)
 
 # Rotazione log: max 5 MB, 3 backup
 handler = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")

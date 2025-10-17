@@ -10,9 +10,13 @@ import plotly.graph_objects as go
 from pathlib import Path
 
 # ==========================
-# 🔐 Config Logging
+# Config Logging
 # ==========================
-LOG_FILE = "logs/recurrence_analysis.log"
+LOG_DIR = "logs"
+LOG_FILE = os.path.join(LOG_DIR, "recurrence_analysis.log")
+
+# Crea cartella logs se non esiste
+os.makedirs(LOG_DIR, exist_ok=True)
 
 handler = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
 formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s - %(message)s")

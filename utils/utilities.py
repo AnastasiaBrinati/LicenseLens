@@ -6,6 +6,7 @@ import re
 import plotly.express as px
 from datetime import datetime
 from utils.deep_search import check_event_exists
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -91,21 +92,39 @@ def extract_links(text: str):
     logger.debug(f"Link trovati: {links}")
     return links
 
-@st.cache_data()
+def _check_single_venue(row, today):
+    """Helper function per parallelizzare le chiamate API"""
+    logger.debug(f"Controllo evento per: {row.get('des_locale', '')}, {row.get('comune', '')}")
+    result = check_event_exists(row.get("des_locale", ""), row.get("comune", ""), today)
+    evidence_meta = result.get("evidence_meta") if isinstance(result, dict) else None
+    return {
+        "Nome Locale": row.get("des_locale", ""),
+        "Evento Oggi": "✅ Sì" if result.get("exists") else "❌ No",
+        "Link": ", ".join(
+            [f"[{i+1}]({url})" for i, url in enumerate(result.get("evidence", []))]
+        ) if result.get("evidence") else "-",
+        "EVIDENZE_META": evidence_meta if evidence_meta else None,
+    }
+
 def get_today_events(df_top, today):
     logger.info(f"Recupero eventi per: {today}")
     table_data = []
-    for _, row in df_top.iterrows():
-        logger.debug(f"Controllo evento per: {row.get('des_locale', '')}, {row.get('comune', '')}")
-        result = check_event_exists(row.get("des_locale", ""), row.get("comune", ""), today)
-        evidence_meta = result.get("evidence_meta") if isinstance(result, dict) else None
-        table_data.append({
-            "Nome Locale": row.get("des_locale", ""),
-            "Evento Oggi": "✅ Sì" if result.get("exists") else "❌ No",
-            "Link": ", ".join(
-                [f"[{i+1}]({url})" for i, url in enumerate(result.get("evidence", []))]
-            ) if result.get("evidence") else "-",
-            "EVIDENZE_META": evidence_meta if evidence_meta else None,
-        })
+
+    # Parallelizza le chiamate API con max 3 worker per rispettare rate limit 15 RPM
+    # 3 worker con sleep di 4s = ~12-15 richieste al minuto
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = []
+        for _, row in df_top.iterrows():
+            future = executor.submit(_check_single_venue, row, today)
+            futures.append(future)
+
+        # Raccogli i risultati man mano che arrivano
+        for future in as_completed(futures):
+            try:
+                result = future.result()
+                table_data.append(result)
+            except Exception as e:
+                logger.exception(f"Errore durante controllo evento: {e}")
+
     logger.info(f"Eventi trovati: {len(table_data)}")
     return pd.DataFrame(table_data)
